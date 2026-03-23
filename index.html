@@ -22,34 +22,17 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 
-/* 좌석 초기 생성 함수 */
+/* 좌석 생성 */
 window.seedSeats = async function () {
-  try {
-    for (let n = 1; n <= 48; n++) {
-      const localIndex = n <= 24 ? n : n - 24;
-      const section = n <= 24 ? "A" : "B";
-      const row = Math.floor((localIndex - 1) / 4) + 1;
-      const col = ((localIndex - 1) % 4) + 1;
+  for (let n = 1; n <= 48; n++) {
+    let status = (n >= 46) ? "disabled" : "available";
 
-      let status = "available";
-      if (n >= 46 && n <= 48) {
-        status = "disabled";
-      }
-
-      await setDoc(doc(db, "seats", `seat_${String(n).padStart(2, "0")}`), {
-        seat_number: n,
-        section: section,
-        row: row,
-        col: col,
-        status: status
-      });
-    }
-
-    alert("좌석 1~48 생성 완료");
-  } catch (e) {
-    console.error(e);
-    alert("좌석 생성 실패");
+    await setDoc(doc(db, "seats", `seat_${String(n).padStart(2,"0")}`), {
+      seat_number: n,
+      status: status
+    });
   }
+  alert("좌석 생성 완료");
 };
 
 window.addEventListener("DOMContentLoaded", () => {
@@ -65,77 +48,74 @@ window.addEventListener("DOMContentLoaded", () => {
     msg.innerText = "";
     result.style.display = "none";
 
-    const student_name = nameInput.value.trim();
-    const student_id = idInput.value.trim();
+    const name = nameInput.value.trim();
+    const id = idInput.value.trim();
 
-    if (!student_name) {
-      msg.innerText = "이름 입력하세요";
+    if (!name) {
+      msg.innerText = "이름 입력";
       return;
     }
 
-    if (!/^\d{8}$/.test(student_id)) {
-      msg.innerText = "학번은 8자리 숫자";
+    if (!/^\d{8}$/.test(id)) {
+      msg.innerText = "학번 8자리 숫자";
       return;
     }
 
     try {
-      const q = query(collection(db, "students"), where("name", "==", student_name));
-      const snapshot = await getDocs(q);
+      const q = query(collection(db, "students"), where("name", "==", name));
+      const snap = await getDocs(q);
 
-      if (snapshot.empty) {
-        msg.innerText = "학생정보 없음";
+      if (snap.empty) {
+        msg.innerText = "학생 없음";
         return;
       }
 
-      let found = false;
-      snapshot.forEach(doc => {
-        if (doc.id === student_id) found = true;
+      let ok = false;
+      snap.forEach(d => {
+        if (d.id === id) ok = true;
       });
 
-      if (!found) {
+      if (!ok) {
         msg.innerText = "학번 불일치";
         return;
       }
 
-      const code = Math.floor(1000 + Math.random() * 9000).toString();
+      const code = Math.floor(1000 + Math.random()*9000).toString();
 
-      const qrData = {
-        student_id,
-        code
-      };
-
-      await QRCode.toCanvas(qrCanvas, JSON.stringify(qrData), {
-        width: 200,
-        color: { dark: "#000", light: "#fff" }
+      await QRCode.toCanvas(qrCanvas, JSON.stringify({id, code}), {
+        width:200
       });
 
-      await addDoc(collection(db, "access_codes"), {
-        student_id,
-        name: student_name,
-        code,
-        qr_data: JSON.stringify(qrData),
-        created_at: serverTimestamp(),
-        is_used: false
+      await addDoc(collection(db,"access_codes"),{
+        student_id:id,
+        name:name,
+        code:code,
+        created_at:serverTimestamp()
       });
 
-      document.getElementById("rname").innerText = student_name;
+      document.getElementById("rname").innerText = name;
       document.getElementById("rcode").innerText = code;
 
       result.style.display = "block";
       msg.innerText = "인증 완료";
 
-    } catch (e) {
-      msg.innerText = "오류 발생";
+    } catch(e){
+      msg.innerText = "오류";
     }
   });
 
-  idInput.addEventListener("input", (e) => {
-    e.target.value = e.target.value.replace(/[^0-9]/g, "").slice(0,8);
+  idInput.addEventListener("input",(e)=>{
+    e.target.value = e.target.value.replace(/[^0-9]/g,"").slice(0,8);
   });
+
 });
 </script>
 
 <style>
+* {
+  box-sizing: border-box;
+}
+
 body {
   margin:0;
   font-family:sans-serif;
@@ -154,21 +134,22 @@ body {
 
 input {
   width:100%;
-  height:45px;
+  height:42px;
   margin-bottom:10px;
   padding:10px;
   border-radius:10px;
   border:1px solid #ccc;
+  font-size:14px;
 }
 
 button {
   width:100%;
-  height:50px;
+  height:45px;
   border:none;
   border-radius:10px;
   background:black;
   color:white;
-  font-size:16px;
+  font-size:15px;
 }
 
 #result {
@@ -201,7 +182,6 @@ canvas {
     <h2 id="rcode"></h2>
     <canvas id="qr"></canvas>
   </div>
-
 </div>
 
 </body>
