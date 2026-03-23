@@ -42,11 +42,13 @@
     async function seedSeats() {
       const batch = writeBatch(db);
 
+      // 기존 좌석 문서 정리
       for (let n = 1; n <= 48; n++) {
         const ref = doc(db, "seats", `seat_${String(n).padStart(2, "0")}`);
         batch.delete(ref);
       }
 
+      // 실제 좌석 1~45 생성
       for (let n = 1; n <= 45; n++) {
         const localIndex = n <= 24 ? n : n - 24;
         const section = n <= 24 ? "A" : "B";
@@ -76,7 +78,9 @@
 
       let needsReset = false;
 
-      if (snap.size !== 45) needsReset = true;
+      if (snap.size !== 45) {
+        needsReset = true;
+      }
 
       snap.forEach((d) => {
         const data = d.data();
@@ -141,6 +145,7 @@
           if (seat.id === selectedSeatId) {
             btn.classList.add("selected");
           }
+
           btn.innerText = seat.seat_number;
           btn.dataset.seatId = seat.id;
 
@@ -190,13 +195,14 @@
       }
 
       const selectedSeat = seatsCache.find((seat) => seat.id === selectedSeatId);
+
       if (!selectedSeat) {
         seatMessage.innerText = "좌석을 1개 선택하세요.";
         completeBtn.disabled = true;
         return;
       }
 
-      seatMessage.innerText = `${selectedSeat.seat_number}번 좌석 선택됨`;
+      seatMessage.innerText = `${selectedSeat.seat_number}번 좌석이 선택되었습니다.`;
       completeBtn.disabled = false;
     }
 
@@ -253,6 +259,7 @@
 
       try {
         const selectedSeat = seatsCache.find((seat) => seat.id === selectedSeatId);
+
         if (!selectedSeat || selectedSeat.status !== "available") {
           alert("선택한 좌석을 사용할 수 없습니다.");
           return;
@@ -555,7 +562,12 @@
       cursor: pointer;
       background: #ffffff;
       color: #111827;
-      transition: transform 0.18s ease, background-color 0.18s ease, color 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
+      transition:
+        transform 0.18s ease,
+        background-color 0.18s ease,
+        color 0.18s ease,
+        border-color 0.18s ease,
+        box-shadow 0.18s ease;
     }
 
     .seat.available:hover {
@@ -744,4 +756,4 @@
     </div>
   </div>
 </body>
-</html>
+</html> 
