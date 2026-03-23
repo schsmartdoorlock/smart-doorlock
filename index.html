@@ -1,212 +1,317 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>순천향대학교 사물인터넷학과 출입 인증 시스템</title>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>순천향대학교 사물인터넷학과 출입 인증 시스템</title>
 
-<script type="module">
-import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-import { getFirestore, collection, query, where, getDocs, addDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
-import QRCode from "https://cdn.skypack.dev/qrcode";
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+    import { getFirestore, collection, query, where, getDocs, addDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+    import QRCode from "https://cdn.skypack.dev/qrcode";
 
-const firebaseConfig = {
-  apiKey: "AIzaSyD8Ze-40qNj-FMDjCu2XSlhdc57oDpUs-M",
-  authDomain: "smart-doorlock-ed630.firebaseapp.com",
-  projectId: "smart-doorlock-ed630",
-  storageBucket: "smart-doorlock-ed630.firebasestorage.app",
-  messagingSenderId: "319771642912",
-  appId: "1:319771642912:web:18a412384f1792ad2d8045"
-};
+    const firebaseConfig = {
+      apiKey: "AIzaSyD8Ze-40qNj-FMDjCu2XSlhdc57oDpUs-M",
+      authDomain: "smart-doorlock-ed630.firebaseapp.com",
+      projectId: "smart-doorlock-ed630",
+      storageBucket: "smart-doorlock-ed630.firebasestorage.app",
+      messagingSenderId: "319771642912",
+      appId: "1:319771642912:web:18a412384f1792ad2d8045"
+    };
 
-const app = initializeApp(firebaseConfig);
-const db = getFirestore(app);
+    const app = initializeApp(firebaseConfig);
+    const db = getFirestore(app);
 
-window.addEventListener("DOMContentLoaded", () => {
-  const nameInput = document.getElementById("name");
-  const idInput = document.getElementById("id");
-  const btn = document.getElementById("btn");
-  const msg = document.getElementById("msg");
-  const result = document.getElementById("result");
-  const qrCanvas = document.getElementById("qr");
+    window.addEventListener("DOMContentLoaded", () => {
+      const nameInput = document.getElementById("name");
+      const idInput = document.getElementById("id");
+      const btn = document.getElementById("btn");
+      const msg = document.getElementById("msg");
+      const result = document.getElementById("result");
+      const qrCanvas = document.getElementById("qr");
+      const rname = document.getElementById("rname");
+      const rcode = document.getElementById("rcode");
 
-  btn.addEventListener("click", async () => {
+      btn.addEventListener("click", async () => {
+        msg.innerText = "";
+        result.style.display = "none";
 
-    msg.innerText = "";
-    result.style.display = "none";
+        const student_name = nameInput.value.trim();
+        const student_id = idInput.value.trim();
 
-    const student_name = nameInput.value.trim();
-    const student_id = idInput.value.trim();
+        if (!student_name) {
+          msg.innerText = "이름을 입력하세요";
+          return;
+        }
 
-    if (!student_name) {
-      msg.innerText = "이름을 입력하세요";
-      return;
+        if (!/^\d{8}$/.test(student_id)) {
+          msg.innerText = "학번은 8자리 숫자만 입력 가능합니다";
+          return;
+        }
+
+        btn.disabled = true;
+        btn.innerText = "확인 중...";
+
+        try {
+          const q = query(collection(db, "students"), where("name", "==", student_name));
+          const snapshot = await getDocs(q);
+
+          if (snapshot.empty) {
+            msg.innerText = "학생정보가 조회되지 않습니다";
+            return;
+          }
+
+          let found = false;
+          snapshot.forEach((doc) => {
+            if (doc.id === student_id) found = true;
+          });
+
+          if (!found) {
+            msg.innerText = "학번이 일치하지 않습니다";
+            return;
+          }
+
+          const code = Math.floor(1000 + Math.random() * 9000).toString();
+
+          const qrData = {
+            student_id,
+            code
+          };
+
+          await QRCode.toCanvas(qrCanvas, JSON.stringify(qrData), {
+            width: 220,
+            margin: 2,
+            color: {
+              dark: "#000000",
+              light: "#ffffff"
+            }
+          });
+
+          await addDoc(collection(db, "access_codes"), {
+            student_id,
+            name: student_name,
+            code,
+            qr_data: JSON.stringify(qrData),
+            created_at: serverTimestamp(),
+            is_used: false
+          });
+
+          rname.innerText = student_name;
+          rcode.innerText = code;
+
+          result.style.display = "block";
+          msg.innerText = `${student_name} 학생 인증 완료 되었습니다. QR 또는 비밀번호로 출입하세요.`;
+        } catch (e) {
+          console.error(e);
+          msg.innerText = "오류가 발생했습니다";
+        } finally {
+          btn.disabled = false;
+          btn.innerText = "인증하기";
+        }
+      });
+
+      idInput.addEventListener("input", (e) => {
+        e.target.value = e.target.value.replace(/[^0-9]/g, "").slice(0, 8);
+      });
+    });
+  </script>
+
+  <style>
+    * {
+      box-sizing: border-box;
     }
 
-    if (!/^\d{8}$/.test(student_id)) {
-      msg.innerText = "학번은 8자리 숫자";
-      return;
+    html, body {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      overflow-x: hidden;
+      font-family: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Noto Sans KR", sans-serif;
+      background: #f3f4f6;
+      color: #111827;
     }
 
-    try {
-      const q = query(collection(db, "students"), where("name", "==", student_name));
-      const snapshot = await getDocs(q);
+    .page {
+      width: 100%;
+      min-height: 100vh;
+      padding: 24px 16px 40px;
+      display: flex;
+      justify-content: center;
+    }
 
-      if (snapshot.empty) {
-        msg.innerText = "학생정보 없음";
-        return;
+    .wrap {
+      width: 100%;
+      max-width: 430px;
+    }
+
+    .title {
+      font-size: 24px;
+      font-weight: 800;
+      line-height: 1.35;
+      margin: 0 0 18px;
+      word-break: keep-all;
+      letter-spacing: -0.3px;
+    }
+
+    .card {
+      width: 100%;
+      background: #ffffff;
+      border-radius: 24px;
+      padding: 20px;
+      box-shadow: 0 12px 28px rgba(0, 0, 0, 0.08);
+    }
+
+    .field {
+      margin-bottom: 12px;
+    }
+
+    .input {
+      width: 100%;
+      height: 58px;
+      border: 1px solid #d1d5db;
+      border-radius: 16px;
+      padding: 0 16px;
+      font-size: 17px;
+      outline: none;
+      background: #fff;
+      transition: border-color 0.2s, box-shadow 0.2s;
+    }
+
+    .input:focus {
+      border-color: #111827;
+      box-shadow: 0 0 0 4px rgba(17, 24, 39, 0.06);
+    }
+
+    .button {
+      width: 100%;
+      height: 56px;
+      border: none;
+      border-radius: 16px;
+      background: #000000;
+      color: #ffffff;
+      font-size: 20px;
+      font-weight: 700;
+      cursor: pointer;
+      margin-top: 6px;
+    }
+
+    .button:disabled {
+      opacity: 0.7;
+      cursor: not-allowed;
+    }
+
+    .message {
+      margin: 16px 2px 0;
+      font-size: 15px;
+      line-height: 1.5;
+      color: #dc2626;
+      word-break: keep-all;
+    }
+
+    .result {
+      display: none;
+      text-align: center;
+      margin-top: 24px;
+      padding-top: 8px;
+    }
+
+    .result-name {
+      font-size: 22px;
+      font-weight: 800;
+      margin-bottom: 10px;
+      word-break: keep-all;
+    }
+
+    .result-code {
+      font-size: 46px;
+      font-weight: 900;
+      letter-spacing: 2px;
+      margin-bottom: 18px;
+    }
+
+    .qr-box {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+    }
+
+    #qr {
+      width: 220px !important;
+      height: 220px !important;
+      background: #ffffff;
+      border-radius: 14px;
+      padding: 8px;
+      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06);
+    }
+
+    @media (max-width: 480px) {
+      .page {
+        padding: 18px 14px 32px;
       }
 
-      let found = false;
-      snapshot.forEach(doc => {
-        if (doc.id === student_id) found = true;
-      });
-
-      if (!found) {
-        msg.innerText = "학번 불일치";
-        return;
+      .title {
+        font-size: 20px;
+        margin-bottom: 14px;
       }
 
-      const code = Math.floor(1000 + Math.random() * 9000).toString();
+      .card {
+        padding: 18px;
+        border-radius: 20px;
+      }
 
-      const qrData = {
-        student_id,
-        code
-      };
+      .input {
+        height: 54px;
+        font-size: 16px;
+      }
 
-      await QRCode.toCanvas(qrCanvas, JSON.stringify(qrData), {
-        width: 200,
-        color: { dark: "#000", light: "#fff" }
-      });
+      .button {
+        height: 54px;
+        font-size: 18px;
+      }
 
-      await addDoc(collection(db, "access_codes"), {
-        student_id,
-        name: student_name,
-        code,
-        qr_data: JSON.stringify(qrData),
-        created_at: serverTimestamp(),
-        is_used: false
-      });
+      .result-name {
+        font-size: 20px;
+      }
 
-      document.getElementById("rname").innerText = student_name;
-      document.getElementById("rcode").innerText = code;
+      .result-code {
+        font-size: 40px;
+      }
 
-      result.style.display = "block";
-      msg.innerText = "인증 완료";
-
-    } catch (e) {
-      msg.innerText = "오류 발생";
+      #qr {
+        width: 200px !important;
+        height: 200px !important;
+      }
     }
-  });
-
-  idInput.addEventListener("input", (e) => {
-    e.target.value = e.target.value.replace(/[^0-9]/g, "").slice(0,8);
-  });
-});
-</script>
-
-<style>
-body {
-  margin:0;
-  font-family: 'Apple SD Gothic Neo', sans-serif;
-  background: linear-gradient(135deg, #111, #333);
-  color:white;
-}
-
-.container {
-  max-width:400px;
-  margin:40px auto;
-  padding:20px;
-}
-
-.title {
-  font-size:20px;
-  font-weight:600;
-  margin-bottom:20px;
-  line-height:1.4;
-}
-
-.card {
-  background:white;
-  color:black;
-  padding:20px;
-  border-radius:20px;
-  box-shadow:0 10px 30px rgba(0,0,0,0.3);
-}
-
-input {
-  width:100%;
-  height:50px;
-  margin-bottom:12px;
-  padding:10px;
-  border-radius:12px;
-  border:1px solid #ddd;
-  font-size:15px;
-}
-
-button {
-  width:100%;
-  height:50px;
-  border:none;
-  border-radius:12px;
-  background:black;
-  color:white;
-  font-size:16px;
-  font-weight:600;
-}
-
-#msg {
-  margin-top:10px;
-  color:red;
-  font-size:14px;
-}
-
-#result {
-  display:none;
-  text-align:center;
-  margin-top:20px;
-}
-
-#rcode {
-  font-size:32px;
-  font-weight:bold;
-  margin:10px 0;
-}
-
-canvas {
-  margin-top:10px;
-  background:white;
-  padding:10px;
-  border-radius:10px;
-}
-</style>
-
+  </style>
 </head>
 
 <body>
+  <div class="page">
+    <div class="wrap">
+      <h1 class="title">순천향대학교 사물인터넷학과 출입 인증 시스템</h1>
 
-<div class="container">
+      <div class="card">
+        <div class="field">
+          <input id="name" class="input" placeholder="이름 입력" />
+        </div>
 
-  <div class="title">
-    순천향대학교<br>
-    사물인터넷학과 출입 인증 시스템
-  </div>
+        <div class="field">
+          <input id="id" class="input" placeholder="학번 (8자리)" inputmode="numeric" />
+        </div>
 
-  <div class="card">
-    <input id="name" placeholder="이름 입력">
-    <input id="id" placeholder="학번 (8자리)" inputmode="numeric">
-    <button id="btn">인증하기</button>
+        <button id="btn" class="button">인증하기</button>
 
-    <p id="msg"></p>
+        <p id="msg" class="message"></p>
 
-    <div id="result">
-      <div id="rname"></div>
-      <div id="rcode"></div>
-      <canvas id="qr"></canvas>
+        <div id="result" class="result">
+          <div id="rname" class="result-name"></div>
+          <div id="rcode" class="result-code"></div>
+          <div class="qr-box">
+            <canvas id="qr"></canvas>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
-
-</div>
-
 </body>
 </html>
