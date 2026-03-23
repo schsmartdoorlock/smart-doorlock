@@ -18,7 +18,8 @@
       doc,
       setDoc,
       updateDoc,
-      writeBatch
+      writeBatch,
+      onSnapshot
     } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
     import QRCode from "https://cdn.skypack.dev/qrcode";
 
@@ -36,54 +37,73 @@
 
     let currentStudent = null;
     let seatsCache = [];
+    let seatsReady = false;
 
-    // 좌석 1~48 초기 생성 (46~48 비활성)
-    window.seedSeats = async function () {
-      try {
-        const batch = writeBatch(db);
+    // 좌석 1~45 초기 생성
+    async function seedSeats() {
+      const batch = writeBatch(db);
 
-        for (let n = 1; n <= 48; n++) {
-          const localIndex = n <= 24 ? n : n - 24;
-          const section = n <= 24 ? "A" : "B";
-          const row = Math.floor((localIndex - 1) / 4) + 1;
-          const col = ((localIndex - 1) % 4) + 1;
-
-          let status = "available";
-          if (n >= 46) status = "disabled";
-
-          const seatRef = doc(db, "seats", `seat_${String(n).padStart(2, "0")}`);
-          batch.set(seatRef, {
-            seat_number: n,
-            section,
-            row,
-            col,
-            status
-          });
-        }
-
-        await batch.commit();
-        alert("좌석 1~48 초기 생성 완료 (46~48 비활성)");
-        await loadSeatStats();
-      } catch (e) {
-        console.error(e);
-        alert("좌석 생성 실패");
+      for (let n = 1; n <= 48; n++) {
+        const ref = doc(db, "seats", `seat_${String(n).padStart(2, "0")}`);
+        batch.delete(ref);
       }
-    };
 
-    async function loadSeats() {
-      const snap = await getDocs(collection(db, "seats"));
-      seatsCache = snap.docs.map(d => ({
-        id: d.id,
-        ...d.data()
-      })).sort((a, b) => a.seat_number - b.seat_number);
+      for (let n = 1; n <= 45; n++) {
+        const localIndex = n <= 24 ? n : n - 24;
+        const section = n <= 24 ? "A" : "B";
+        const row = Math.floor((localIndex - 1) / 4) + 1;
+        const col = ((localIndex - 1) % 4) + 1;
+
+        const ref = doc(db, "seats", `seat_${String(n).padStart(2, "0")}`);
+        batch.set(ref, {
+          seat_number: n,
+          section,
+          row,
+          col,
+          status: "available"
+        });
+      }
+
+      await batch.commit();
     }
 
-    async function loadSeatStats() {
-      await loadSeats();
+    // seats 컬렉션이 비어있거나 구조가 틀리면 자동 초기화
+    async function ensureSeatsInitialized() {
+      const snap = await getDocs(collection(db, "seats"));
 
-      const usableSeats = seatsCache.filter(seat => seat.status !== "disabled");
-      const inUseSeats = usableSeats.filter(seat => seat.status === "in_use");
-      const availableSeats = usableSeats.filter(seat => seat.status === "available");
+      if (snap.empty) {
+        await seedSeats();
+        return;
+      }
+
+      let needsReset = false;
+
+      if (snap.size !== 45) {
+        needsReset = true;
+      }
+
+      snap.forEach((d) => {
+        const data = d.data();
+        if (
+          typeof data.seat_number !== "number" ||
+          !data.section ||
+          typeof data.row !== "number" ||
+          typeof data.col !== "number" ||
+          !data.status
+        ) {
+          needsReset = true;
+        }
+      });
+
+      if (needsReset) {
+        await seedSeats();
+      }
+    }
+
+    function updateSeatStatsAndRender() {
+      const usableSeats = seatsCache;
+      const inUseSeats = usableSeats.filter((seat) => seat.status === "in_use");
+      const availableSeats = usableSeats.filter((seat) => seat.status === "available");
 
       const total = usableSeats.length;
       const used = inUseSeats.length;
@@ -93,6 +113,53 @@
       document.getElementById("totalSeats").innerText = `${total}석`;
       document.getElementById("remainingSeats").innerText = `${remaining}석`;
       document.getElementById("occupancyRate").innerText = `${rate}%`;
+
+      renderSeats();
+    }
+
+    function buildSectionLayout(sectionName) {
+      const sectionSeats = seatsCache
+        .filter((seat) => seat.section === sectionName)
+        .sort((a, b) => a.seat_number - b.seat_number);
+
+      const maxRows = sectionName === "A" ? 6 : 6;
+      const maxCols = 4;
+      const map = new Map();
+
+      sectionSeats.forEach((seat) => {
+        map.set(`${seat.row}-${seat.col}`, seat);
+      });
+
+      const fragment = document.createDocumentFragment();
+
+      for (let row = 1; row <= maxRows; row++) {
+        for (let col = 1; col <= maxCols; col++) {
+          const key = `${row}-${col}`;
+          const seat = map.get(key);
+
+          if (!seat) {
+            const empty = document.createElement("div");
+            empty.className = "seat-empty";
+            fragment.appendChild(empty);
+            continue;
+          }
+
+          const btn = document.createElement("button");
+          btn.className = `seat ${seat.status}`;
+          btn.innerText = seat.seat_number;
+          btn.dataset.seatId = seat.id;
+
+          if (seat.status === "available") {
+            btn.addEventListener("click", () => selectSeat(seat, btn));
+          } else {
+            btn.disabled = true;
+          }
+
+          fragment.appendChild(btn);
+        }
+      }
+
+      return fragment;
     }
 
     function renderSeats() {
@@ -102,27 +169,13 @@
       sectionA.innerHTML = "";
       sectionB.innerHTML = "";
 
-      seatsCache.forEach(seat => {
-        const seatBtn = document.createElement("button");
-        seatBtn.className = `seat ${seat.status}`;
-        seatBtn.innerText = seat.seat_number;
-
-        if (seat.status === "available") {
-          seatBtn.addEventListener("click", () => selectSeat(seat));
-        } else {
-          seatBtn.disabled = true;
-        }
-
-        if (seat.section === "A") {
-          sectionA.appendChild(seatBtn);
-        } else {
-          sectionB.appendChild(seatBtn);
-        }
-      });
+      sectionA.appendChild(buildSectionLayout("A"));
+      sectionB.appendChild(buildSectionLayout("B"));
     }
 
     async function issueAccess(student, seatNumber) {
       const code = Math.floor(1000 + Math.random() * 9000).toString();
+
       const qrData = {
         student_id: student.id,
         code,
@@ -130,6 +183,7 @@
       };
 
       const qrCanvas = document.getElementById("qr");
+
       await QRCode.toCanvas(qrCanvas, JSON.stringify(qrData), {
         width: 220,
         margin: 2,
@@ -157,38 +211,50 @@
         created_at: serverTimestamp()
       });
 
+      document.getElementById("rseat").innerText = `${seatNumber}번 좌석`;
       document.getElementById("rname").innerText = student.name;
       document.getElementById("rcode").innerText = code;
-      document.getElementById("rseat").innerText = `${seatNumber}번 좌석`;
-
       document.getElementById("result").style.display = "block";
+
       document.getElementById("seatMessage").innerText =
         `${student.name} 학생 ${seatNumber}번 좌석 선택 완료`;
     }
 
-    async function selectSeat(seat) {
+    async function selectSeat(seat, buttonEl) {
       if (!currentStudent) return;
 
       try {
+        buttonEl.classList.add("selecting");
+
         const seatRef = doc(db, "seats", seat.id);
         await updateDoc(seatRef, {
           status: "in_use"
         });
 
-        await loadSeatStats();
-        await loadSeats();
-        renderSeats();
-
         await issueAccess(currentStudent, seat.seat_number);
 
-        document.getElementById("seatSection").scrollIntoView({
+        document.getElementById("result").scrollIntoView({
           behavior: "smooth",
           block: "start"
         });
       } catch (e) {
         console.error(e);
-        alert("좌석 선택 중 오류 발생");
+        alert("좌석 선택 중 오류가 발생했습니다.");
       }
+    }
+
+    function subscribeSeatsRealtime() {
+      onSnapshot(collection(db, "seats"), (snapshot) => {
+        seatsCache = snapshot.docs
+          .map((d) => ({
+            id: d.id,
+            ...d.data()
+          }))
+          .sort((a, b) => a.seat_number - b.seat_number);
+
+        if (!seatsReady) seatsReady = true;
+        updateSeatStatsAndRender();
+      });
     }
 
     window.addEventListener("DOMContentLoaded", async () => {
@@ -196,13 +262,15 @@
       const idInput = document.getElementById("id");
       const btn = document.getElementById("btn");
       const msg = document.getElementById("msg");
-      const authSection = document.getElementById("authSection");
       const seatSection = document.getElementById("seatSection");
 
-      await loadSeatStats();
+      await ensureSeatsInitialized();
+      subscribeSeatsRealtime();
 
       btn.addEventListener("click", async () => {
         msg.innerText = "";
+        document.getElementById("result").style.display = "none";
+        document.getElementById("seatMessage").innerText = "";
 
         const studentName = nameInput.value.trim();
         const studentId = idInput.value.trim();
@@ -250,12 +318,6 @@
             `${studentName} 학생 좌석 선택`;
 
           seatSection.style.display = "block";
-          document.getElementById("result").style.display = "none";
-          document.getElementById("seatMessage").innerText = "";
-
-          await loadSeatStats();
-          await loadSeats();
-          renderSeats();
 
           seatSection.scrollIntoView({
             behavior: "smooth",
@@ -404,6 +466,7 @@
       display: grid;
       grid-template-columns: 1fr 1fr;
       gap: 20px;
+      align-items: start;
     }
 
     .section-title {
@@ -420,33 +483,44 @@
       gap: 8px;
     }
 
-    .seat {
+    .seat,
+    .seat-empty {
       aspect-ratio: 1 / 1;
       border-radius: 12px;
+    }
+
+    .seat {
       border: 1px solid #d1d5db;
       font-size: 14px;
       font-weight: 700;
       cursor: pointer;
       background: #ffffff;
+      color: #111827;
+      transition: transform 0.18s ease, background-color 0.18s ease, color 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
     }
 
-    .seat.available {
-      background: #ffffff;
-      color: #111827;
+    .seat.available:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 14px rgba(0, 0, 0, 0.08);
+      border-color: #111827;
+    }
+
+    .seat.selecting {
+      transform: scale(0.94);
+      background: #111827;
+      color: #ffffff;
+      border-color: #111827;
     }
 
     .seat.in_use {
-      background: #ef4444;
+      background: #111827;
       color: #ffffff;
-      border-color: #ef4444;
+      border-color: #111827;
       cursor: not-allowed;
     }
 
-    .seat.disabled {
-      background: #d1d5db;
-      color: #6b7280;
-      border-color: #d1d5db;
-      cursor: not-allowed;
+    .seat-empty {
+      background: transparent;
     }
 
     .seat-message {
@@ -455,6 +529,7 @@
       color: #2563eb;
       font-size: 14px;
       font-weight: 700;
+      word-break: keep-all;
     }
 
     .result {
@@ -565,7 +640,7 @@
         </div>
       </div>
 
-      <div class="card" id="authSection">
+      <div class="card">
         <div class="field">
           <input id="name" class="input" placeholder="이름 입력" />
         </div>
