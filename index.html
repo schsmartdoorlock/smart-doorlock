@@ -37,9 +37,8 @@
 
     let currentStudent = null;
     let seatsCache = [];
-    let seatsReady = false;
+    let selectedSeatId = null;
 
-    // 좌석 1~45 초기 생성
     async function seedSeats() {
       const batch = writeBatch(db);
 
@@ -67,7 +66,6 @@
       await batch.commit();
     }
 
-    // seats 컬렉션이 비어있거나 구조가 틀리면 자동 초기화
     async function ensureSeatsInitialized() {
       const snap = await getDocs(collection(db, "seats"));
 
@@ -78,9 +76,7 @@
 
       let needsReset = false;
 
-      if (snap.size !== 45) {
-        needsReset = true;
-      }
+      if (snap.size !== 45) needsReset = true;
 
       snap.forEach((d) => {
         const data = d.data();
@@ -101,13 +97,9 @@
     }
 
     function updateSeatStatsAndRender() {
-      const usableSeats = seatsCache;
-      const inUseSeats = usableSeats.filter((seat) => seat.status === "in_use");
-      const availableSeats = usableSeats.filter((seat) => seat.status === "available");
-
-      const total = usableSeats.length;
-      const used = inUseSeats.length;
-      const remaining = availableSeats.length;
+      const total = seatsCache.length;
+      const used = seatsCache.filter((seat) => seat.status === "in_use").length;
+      const remaining = seatsCache.filter((seat) => seat.status === "available").length;
       const rate = total === 0 ? 0 : Math.round((used / total) * 100);
 
       document.getElementById("totalSeats").innerText = `${total}석`;
@@ -122,7 +114,7 @@
         .filter((seat) => seat.section === sectionName)
         .sort((a, b) => a.seat_number - b.seat_number);
 
-      const maxRows = sectionName === "A" ? 6 : 6;
+      const maxRows = 6;
       const maxCols = 4;
       const map = new Map();
 
@@ -146,11 +138,14 @@
 
           const btn = document.createElement("button");
           btn.className = `seat ${seat.status}`;
+          if (seat.id === selectedSeatId) {
+            btn.classList.add("selected");
+          }
           btn.innerText = seat.seat_number;
           btn.dataset.seatId = seat.id;
 
           if (seat.status === "available") {
-            btn.addEventListener("click", () => selectSeat(seat, btn));
+            btn.addEventListener("click", () => toggleSeatSelection(seat.id));
           } else {
             btn.disabled = true;
           }
@@ -171,6 +166,38 @@
 
       sectionA.appendChild(buildSectionLayout("A"));
       sectionB.appendChild(buildSectionLayout("B"));
+
+      updateSelectedMessage();
+    }
+
+    function toggleSeatSelection(seatId) {
+      if (selectedSeatId === seatId) {
+        selectedSeatId = null;
+      } else {
+        selectedSeatId = seatId;
+      }
+      renderSeats();
+    }
+
+    function updateSelectedMessage() {
+      const seatMessage = document.getElementById("seatMessage");
+      const completeBtn = document.getElementById("completeBtn");
+
+      if (!selectedSeatId) {
+        seatMessage.innerText = "좌석을 1개 선택하세요.";
+        completeBtn.disabled = true;
+        return;
+      }
+
+      const selectedSeat = seatsCache.find((seat) => seat.id === selectedSeatId);
+      if (!selectedSeat) {
+        seatMessage.innerText = "좌석을 1개 선택하세요.";
+        completeBtn.disabled = true;
+        return;
+      }
+
+      seatMessage.innerText = `${selectedSeat.seat_number}번 좌석 선택됨`;
+      completeBtn.disabled = false;
     }
 
     async function issueAccess(student, seatNumber) {
@@ -215,23 +242,33 @@
       document.getElementById("rname").innerText = student.name;
       document.getElementById("rcode").innerText = code;
       document.getElementById("result").style.display = "block";
-
-      document.getElementById("seatMessage").innerText =
-        `${student.name} 학생 ${seatNumber}번 좌석 선택 완료`;
     }
 
-    async function selectSeat(seat, buttonEl) {
-      if (!currentStudent) return;
+    async function confirmSeatSelection() {
+      if (!currentStudent || !selectedSeatId) return;
+
+      const completeBtn = document.getElementById("completeBtn");
+      completeBtn.disabled = true;
+      completeBtn.innerText = "처리 중...";
 
       try {
-        buttonEl.classList.add("selecting");
+        const selectedSeat = seatsCache.find((seat) => seat.id === selectedSeatId);
+        if (!selectedSeat || selectedSeat.status !== "available") {
+          alert("선택한 좌석을 사용할 수 없습니다.");
+          return;
+        }
 
-        const seatRef = doc(db, "seats", seat.id);
+        const seatRef = doc(db, "seats", selectedSeat.id);
         await updateDoc(seatRef, {
           status: "in_use"
         });
 
-        await issueAccess(currentStudent, seat.seat_number);
+        await issueAccess(currentStudent, selectedSeat.seat_number);
+
+        document.getElementById("seatMessage").innerText =
+          `${currentStudent.name} 학생 ${selectedSeat.seat_number}번 좌석 선택 완료`;
+
+        selectedSeatId = null;
 
         document.getElementById("result").scrollIntoView({
           behavior: "smooth",
@@ -239,7 +276,10 @@
         });
       } catch (e) {
         console.error(e);
-        alert("좌석 선택 중 오류가 발생했습니다.");
+        alert("좌석 선택 완료 처리 중 오류가 발생했습니다.");
+      } finally {
+        completeBtn.disabled = false;
+        completeBtn.innerText = "좌석 선택 완료";
       }
     }
 
@@ -252,7 +292,13 @@
           }))
           .sort((a, b) => a.seat_number - b.seat_number);
 
-        if (!seatsReady) seatsReady = true;
+        if (selectedSeatId) {
+          const current = seatsCache.find((seat) => seat.id === selectedSeatId);
+          if (!current || current.status !== "available") {
+            selectedSeatId = null;
+          }
+        }
+
         updateSeatStatsAndRender();
       });
     }
@@ -263,6 +309,7 @@
       const btn = document.getElementById("btn");
       const msg = document.getElementById("msg");
       const seatSection = document.getElementById("seatSection");
+      const completeBtn = document.getElementById("completeBtn");
 
       await ensureSeatsInitialized();
       subscribeSeatsRealtime();
@@ -271,6 +318,7 @@
         msg.innerText = "";
         document.getElementById("result").style.display = "none";
         document.getElementById("seatMessage").innerText = "";
+        selectedSeatId = null;
 
         const studentName = nameInput.value.trim();
         const studentId = idInput.value.trim();
@@ -318,6 +366,9 @@
             `${studentName} 학생 좌석 선택`;
 
           seatSection.style.display = "block";
+          completeBtn.disabled = true;
+
+          renderSeats();
 
           seatSection.scrollIntoView({
             behavior: "smooth",
@@ -331,6 +382,8 @@
           btn.innerText = "인증하기";
         }
       });
+
+      completeBtn.addEventListener("click", confirmSeatSelection);
 
       idInput.addEventListener("input", (e) => {
         e.target.value = e.target.value.replace(/[^0-9]/g, "").slice(0, 8);
@@ -425,7 +478,8 @@
       background: #fff;
     }
 
-    .button {
+    .button,
+    .complete-button {
       width: 100%;
       height: 56px;
       border: none;
@@ -438,7 +492,12 @@
       margin-top: 6px;
     }
 
-    .button:disabled {
+    .complete-button {
+      margin-top: 18px;
+    }
+
+    .button:disabled,
+    .complete-button:disabled {
       opacity: 0.7;
       cursor: not-allowed;
     }
@@ -505,11 +564,12 @@
       border-color: #111827;
     }
 
-    .seat.selecting {
-      transform: scale(0.94);
-      background: #111827;
-      color: #ffffff;
-      border-color: #111827;
+    .seat.selected {
+      background: #dbeafe;
+      color: #1d4ed8;
+      border-color: #93c5fd;
+      transform: scale(1.03);
+      box-shadow: 0 8px 18px rgba(37, 99, 235, 0.18);
     }
 
     .seat.in_use {
@@ -603,7 +663,8 @@
         font-size: 16px;
       }
 
-      .button {
+      .button,
+      .complete-button {
         height: 54px;
         font-size: 18px;
       }
@@ -669,6 +730,7 @@
         </div>
 
         <div class="seat-message" id="seatMessage"></div>
+        <button id="completeBtn" class="complete-button" disabled>좌석 선택 완료</button>
 
         <div class="result" id="result">
           <div class="result-seat" id="rseat"></div>
