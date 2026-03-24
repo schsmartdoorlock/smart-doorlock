@@ -46,17 +46,13 @@
       return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
     }
 
+    // 테스트용: 시간 제한 해제
     function isWithinAccessHours(date = new Date()) {
-      const minutes = date.getHours() * 60 + date.getMinutes();
-      const start = 18 * 60 + 30;
-      const end = 9 * 60;
-      return minutes >= start || minutes < end;
+      return true;
     }
 
     function getTimeStatusText(date = new Date()) {
-      return isWithinAccessHours(date)
-        ? "현재는 출입 가능 시간입니다."
-        : "현재는 출입 가능 시간이 아닙니다. 이용 가능 시간은 18:30부터 다음날 09:00까지입니다.";
+      return "테스트 모드입니다. 현재 출입 제한 없이 이용 가능합니다.";
     }
 
     async function seedSeats() {
@@ -143,31 +139,9 @@
       }
     }
 
+    // 테스트용: 자동 초기화 로직 비활성
     async function autoResetIfNeeded() {
-      const now = new Date();
-      const minutes = now.getHours() * 60 + now.getMinutes();
-      const resetTime = 9 * 60;
-
-      if (minutes < resetTime) {
-        return;
-      }
-
-      const resetRef = doc(db, "system_settings", "seat_reset");
-      const resetSnap = await getDoc(resetRef);
-      const todayKey = formatDateKey(now);
-
-      let lastResetDate = null;
-      if (resetSnap.exists()) {
-        lastResetDate = resetSnap.data().last_reset_date || null;
-      }
-
-      if (lastResetDate !== todayKey) {
-        await resetAllSeats(false);
-        await setDoc(resetRef, {
-          last_reset_date: todayKey,
-          updated_at: serverTimestamp()
-        });
-      }
+      return;
     }
 
     function updateAccessAvailability() {
@@ -263,6 +237,7 @@
       sectionB.appendChild(buildSectionLayout("B"));
 
       updateSelectedMessage();
+      updateExitButtonVisibility();
     }
 
     function toggleSeatSelection(seatId) {
@@ -277,6 +252,8 @@
     function updateSelectedMessage() {
       const seatMessage = document.getElementById("seatMessage");
       const completeBtn = document.getElementById("completeBtn");
+
+      if (!seatMessage || !completeBtn) return;
 
       if (!selectedSeatId) {
         seatMessage.innerText = "좌석을 1개 선택하세요.";
@@ -294,6 +271,22 @@
 
       seatMessage.innerText = `${selectedSeat.seat_number}번 좌석이 선택되었습니다.`;
       completeBtn.disabled = false;
+    }
+
+    function updateExitButtonVisibility() {
+      const exitBtn = document.getElementById("exitBtn");
+      if (!exitBtn) return;
+
+      if (!currentStudent) {
+        exitBtn.style.display = "none";
+        return;
+      }
+
+      const existingSeat = seatsCache.find(
+        (seat) => seat.student_id === currentStudent.id && seat.status === "in_use"
+      );
+
+      exitBtn.style.display = existingSeat ? "block" : "none";
     }
 
     function showIssuedAccess(studentName, seatNumber, code, qrData) {
@@ -420,6 +413,46 @@
       }
     }
 
+    async function handleExit() {
+      if (!currentStudent) return;
+
+      const exitBtn = document.getElementById("exitBtn");
+      exitBtn.disabled = true;
+      exitBtn.innerText = "퇴실 처리 중...";
+
+      try {
+        const existingSeat = seatsCache.find(
+          (seat) => seat.student_id === currentStudent.id && seat.status === "in_use"
+        );
+
+        if (!existingSeat) {
+          alert("현재 사용 중인 좌석이 없습니다.");
+          return;
+        }
+
+        const seatRef = doc(db, "seats", existingSeat.id);
+        await updateDoc(seatRef, {
+          status: "available",
+          student_id: null,
+          student_name: null,
+          code: null,
+          assigned_at: null
+        });
+
+        selectedSeatId = null;
+        document.getElementById("result").style.display = "none";
+        document.getElementById("seatMessage").innerText =
+          `${currentStudent.name} 학생 퇴실 처리 완료. 다시 좌석을 선택할 수 있습니다.`;
+
+      } catch (e) {
+        console.error(e);
+        alert("퇴실 처리 중 오류가 발생했습니다.");
+      } finally {
+        exitBtn.disabled = false;
+        exitBtn.innerText = "퇴실하기";
+      }
+    }
+
     function subscribeSeatsRealtime() {
       onSnapshot(collection(db, "seats"), (snapshot) => {
         seatsCache = snapshot.docs
@@ -463,11 +496,6 @@
 
       if (!/^\d{8}$/.test(studentId)) {
         msg.innerText = "학번은 8자리 숫자만 입력 가능합니다.";
-        return;
-      }
-
-      if (!isWithinAccessHours()) {
-        msg.innerText = "현재는 출입 가능 시간이 아닙니다.";
         return;
       }
 
@@ -541,6 +569,7 @@
       const idInput = document.getElementById("id");
       const btn = document.getElementById("btn");
       const completeBtn = document.getElementById("completeBtn");
+      const exitBtn = document.getElementById("exitBtn");
 
       await ensureSeatsInitialized();
       await autoResetIfNeeded();
@@ -549,6 +578,7 @@
 
       btn.addEventListener("click", handleAuth);
       completeBtn.addEventListener("click", confirmSeatSelection);
+      exitBtn.addEventListener("click", handleExit);
 
       idInput.addEventListener("input", (e) => {
         e.target.value = e.target.value.replace(/[^0-9]/g, "").slice(0, 8);
@@ -665,12 +695,12 @@
     }
 
     .button,
-    .complete-button {
+    .complete-button,
+    .exit-button {
       width: 100%;
       height: 56px;
       border: none;
       border-radius: 16px;
-      background: #000000;
       color: #ffffff;
       font-size: 20px;
       font-weight: 700;
@@ -679,13 +709,26 @@
       transition: opacity 0.2s ease, transform 0.15s ease;
     }
 
+    .button,
+    .complete-button {
+      background: #000000;
+    }
+
+    .exit-button {
+      background: #dc2626;
+      display: none;
+      margin-top: 12px;
+    }
+
     .button:active,
-    .complete-button:active {
+    .complete-button:active,
+    .exit-button:active {
       transform: scale(0.99);
     }
 
     .button:disabled,
-    .complete-button:disabled {
+    .complete-button:disabled,
+    .exit-button:disabled {
       opacity: 0.7;
       cursor: not-allowed;
     }
@@ -857,7 +900,8 @@
       }
 
       .button,
-      .complete-button {
+      .complete-button,
+      .exit-button {
         height: 54px;
         font-size: 18px;
       }
@@ -926,6 +970,7 @@
 
         <div class="seat-message" id="seatMessage"></div>
         <button id="completeBtn" class="complete-button" disabled>좌석 선택 완료</button>
+        <button id="exitBtn" class="exit-button">퇴실하기</button>
 
         <div class="result" id="result">
           <div class="result-seat" id="rseat"></div>
@@ -940,10 +985,3 @@
   </div>
 </body>
 </html>
-"""
-
-path = "/mnt/data/index.html"
-with open(path, "w", encoding="utf-8") as f:
-    f.write(html)
-
-print(path)
