@@ -10,13 +10,12 @@
     import {
       getFirestore,
       collection,
-      query,
-      where,
       getDocs,
       addDoc,
       serverTimestamp,
       doc,
       setDoc,
+      getDoc,
       updateDoc,
       writeBatch,
       onSnapshot
@@ -39,16 +38,35 @@
     let seatsCache = [];
     let selectedSeatId = null;
 
+    function pad(n) {
+      return String(n).padStart(2, "0");
+    }
+
+    function formatDateKey(date) {
+      return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+    }
+
+    function isWithinAccessHours(date = new Date()) {
+      const minutes = date.getHours() * 60 + date.getMinutes();
+      const start = 18 * 60 + 30;
+      const end = 9 * 60;
+      return minutes >= start || minutes < end;
+    }
+
+    function getTimeStatusText(date = new Date()) {
+      return isWithinAccessHours(date)
+        ? "현재는 출입 가능 시간입니다."
+        : "현재는 출입 가능 시간이 아닙니다. 이용 가능 시간은 18:30부터 다음날 09:00까지입니다.";
+    }
+
     async function seedSeats() {
       const batch = writeBatch(db);
 
-      // 기존 좌석 문서 정리
       for (let n = 1; n <= 48; n++) {
         const ref = doc(db, "seats", `seat_${String(n).padStart(2, "0")}`);
         batch.delete(ref);
       }
 
-      // 실제 좌석 1~45 생성
       for (let n = 1; n <= 45; n++) {
         const localIndex = n <= 24 ? n : n - 24;
         const section = n <= 24 ? "A" : "B";
@@ -61,11 +79,36 @@
           section,
           row,
           col,
-          status: "available"
+          status: "available",
+          student_id: null,
+          student_name: null,
+          code: null,
+          assigned_at: null
         });
       }
 
       await batch.commit();
+    }
+
+    async function resetAllSeats(showAlert = false) {
+      const snap = await getDocs(collection(db, "seats"));
+      const batch = writeBatch(db);
+
+      snap.forEach((seatDoc) => {
+        batch.update(seatDoc.ref, {
+          status: "available",
+          student_id: null,
+          student_name: null,
+          code: null,
+          assigned_at: null
+        });
+      });
+
+      await batch.commit();
+
+      if (showAlert) {
+        alert("전체 좌석이 초기화되었습니다.");
+      }
     }
 
     async function ensureSeatsInitialized() {
@@ -89,7 +132,7 @@
           !data.section ||
           typeof data.row !== "number" ||
           typeof data.col !== "number" ||
-          !data.status
+          !("status" in data)
         ) {
           needsReset = true;
         }
@@ -97,6 +140,50 @@
 
       if (needsReset) {
         await seedSeats();
+      }
+    }
+
+    async function autoResetIfNeeded() {
+      const now = new Date();
+      const minutes = now.getHours() * 60 + now.getMinutes();
+      const resetTime = 9 * 60;
+
+      if (minutes < resetTime) {
+        return;
+      }
+
+      const resetRef = doc(db, "system_settings", "seat_reset");
+      const resetSnap = await getDoc(resetRef);
+      const todayKey = formatDateKey(now);
+
+      let lastResetDate = null;
+      if (resetSnap.exists()) {
+        lastResetDate = resetSnap.data().last_reset_date || null;
+      }
+
+      if (lastResetDate !== todayKey) {
+        await resetAllSeats(false);
+        await setDoc(resetRef, {
+          last_reset_date: todayKey,
+          updated_at: serverTimestamp()
+        });
+      }
+    }
+
+    function updateAccessAvailability() {
+      const allowed = isWithinAccessHours();
+      const btn = document.getElementById("btn");
+      const timeNotice = document.getElementById("timeNotice");
+
+      btn.disabled = !allowed;
+      timeNotice.innerText = getTimeStatusText();
+      timeNotice.className = allowed ? "time-notice active" : "time-notice inactive";
+
+      if (!allowed) {
+        selectedSeatId = null;
+        currentStudent = null;
+        document.getElementById("seatSection").style.display = "none";
+        document.getElementById("result").style.display = "none";
       }
     }
 
@@ -142,6 +229,7 @@
 
           const btn = document.createElement("button");
           btn.className = `seat ${seat.status}`;
+
           if (seat.id === selectedSeatId) {
             btn.classList.add("selected");
           }
@@ -165,6 +253,8 @@
     function renderSeats() {
       const sectionA = document.getElementById("sectionA");
       const sectionB = document.getElementById("sectionB");
+
+      if (!sectionA || !sectionB) return;
 
       sectionA.innerHTML = "";
       sectionB.innerHTML = "";
@@ -206,18 +296,10 @@
       completeBtn.disabled = false;
     }
 
-    async function issueAccess(student, seatNumber) {
-      const code = Math.floor(1000 + Math.random() * 9000).toString();
-
-      const qrData = {
-        student_id: student.id,
-        code,
-        seat_number: seatNumber
-      };
-
+    function showIssuedAccess(studentName, seatNumber, code, qrData) {
       const qrCanvas = document.getElementById("qr");
 
-      await QRCode.toCanvas(qrCanvas, JSON.stringify(qrData), {
+      QRCode.toCanvas(qrCanvas, JSON.stringify(qrData), {
         width: 220,
         margin: 2,
         color: {
@@ -226,28 +308,61 @@
         }
       });
 
-      await addDoc(collection(db, "access_codes"), {
-        student_id: student.id,
-        name: student.name,
-        seat_number: seatNumber,
-        code,
-        qr_data: JSON.stringify(qrData),
-        created_at: serverTimestamp(),
-        is_used: false
-      });
-
-      await addDoc(collection(db, "seat_usage"), {
-        student_id: student.id,
-        name: student.name,
-        seat_number: seatNumber,
-        status: "in_use",
-        created_at: serverTimestamp()
-      });
-
       document.getElementById("rseat").innerText = `${seatNumber}번 좌석`;
-      document.getElementById("rname").innerText = student.name;
+      document.getElementById("rname").innerText = studentName;
       document.getElementById("rcode").innerText = code;
       document.getElementById("result").style.display = "block";
+    }
+
+    async function issueAccess(student, seatNumber) {
+      const seatDocId = `seat_${String(seatNumber).padStart(2, "0")}`;
+      const seatRef = doc(db, "seats", seatDocId);
+      const seatSnap = await getDoc(seatRef);
+
+      if (!seatSnap.exists()) {
+        throw new Error("좌석 정보를 찾을 수 없습니다.");
+      }
+
+      const seatData = seatSnap.data();
+      let code = seatData.code;
+
+      if (!code) {
+        code = Math.floor(1000 + Math.random() * 9000).toString();
+
+        await updateDoc(seatRef, {
+          code: code
+        });
+
+        await addDoc(collection(db, "access_codes"), {
+          student_id: student.id,
+          name: student.name,
+          seat_number: seatNumber,
+          code,
+          qr_data: JSON.stringify({
+            student_id: student.id,
+            code,
+            seat_number: seatNumber
+          }),
+          created_at: serverTimestamp(),
+          is_used: false
+        });
+
+        await addDoc(collection(db, "seat_usage"), {
+          student_id: student.id,
+          name: student.name,
+          seat_number: seatNumber,
+          status: "in_use",
+          created_at: serverTimestamp()
+        });
+      }
+
+      const qrData = {
+        student_id: student.id,
+        code,
+        seat_number: seatNumber
+      };
+
+      showIssuedAccess(student.name, seatNumber, code, qrData);
     }
 
     async function confirmSeatSelection() {
@@ -258,6 +373,18 @@
       completeBtn.innerText = "처리 중...";
 
       try {
+        const existingSeat = seatsCache.find(
+          (seat) => seat.student_id === currentStudent.id && seat.status === "in_use"
+        );
+
+        if (existingSeat) {
+          await issueAccess(currentStudent, existingSeat.seat_number);
+          document.getElementById("seatMessage").innerText =
+            `${currentStudent.name} 학생은 이미 ${existingSeat.seat_number}번 좌석을 사용 중입니다.`;
+          selectedSeatId = null;
+          return;
+        }
+
         const selectedSeat = seatsCache.find((seat) => seat.id === selectedSeatId);
 
         if (!selectedSeat || selectedSeat.status !== "available") {
@@ -267,7 +394,10 @@
 
         const seatRef = doc(db, "seats", selectedSeat.id);
         await updateDoc(seatRef, {
-          status: "in_use"
+          status: "in_use",
+          student_id: currentStudent.id,
+          student_name: currentStudent.name,
+          assigned_at: serverTimestamp()
         });
 
         await issueAccess(currentStudent, selectedSeat.seat_number);
@@ -310,7 +440,7 @@
       });
     }
 
-    window.addEventListener("DOMContentLoaded", async () => {
+    async function handleAuth() {
       const nameInput = document.getElementById("name");
       const idInput = document.getElementById("id");
       const btn = document.getElementById("btn");
@@ -318,83 +448,113 @@
       const seatSection = document.getElementById("seatSection");
       const completeBtn = document.getElementById("completeBtn");
 
-      await ensureSeatsInitialized();
-      subscribeSeatsRealtime();
+      msg.innerText = "";
+      document.getElementById("result").style.display = "none";
+      document.getElementById("seatMessage").innerText = "";
+      selectedSeatId = null;
 
-      btn.addEventListener("click", async () => {
-        msg.innerText = "";
-        document.getElementById("result").style.display = "none";
-        document.getElementById("seatMessage").innerText = "";
-        selectedSeatId = null;
+      const studentName = nameInput.value.trim();
+      const studentId = idInput.value.trim();
 
-        const studentName = nameInput.value.trim();
-        const studentId = idInput.value.trim();
+      if (!studentName) {
+        msg.innerText = "이름을 입력하세요.";
+        return;
+      }
 
-        if (!studentName) {
-          msg.innerText = "이름을 입력하세요";
+      if (!/^\d{8}$/.test(studentId)) {
+        msg.innerText = "학번은 8자리 숫자만 입력 가능합니다.";
+        return;
+      }
+
+      if (!isWithinAccessHours()) {
+        msg.innerText = "현재는 출입 가능 시간이 아닙니다.";
+        return;
+      }
+
+      btn.disabled = true;
+      btn.innerText = "확인 중...";
+
+      try {
+        const studentsSnap = await getDocs(collection(db, "students"));
+        const matchedStudent = studentsSnap.docs.find(
+          (d) => d.id === studentId && (d.data().name || "") === studentName
+        );
+
+        if (!matchedStudent) {
+          const nameExists = studentsSnap.docs.some((d) => (d.data().name || "") === studentName);
+          msg.innerText = nameExists ? "학번이 일치하지 않습니다." : "학생정보가 조회되지 않습니다.";
           return;
         }
 
-        if (!/^\d{8}$/.test(studentId)) {
-          msg.innerText = "학번은 8자리 숫자만 입력 가능합니다";
-          return;
-        }
+        currentStudent = {
+          id: studentId,
+          name: studentName
+        };
 
-        btn.disabled = true;
-        btn.innerText = "확인 중...";
+        const existingSeat = seatsCache.find(
+          (seat) => seat.student_id === studentId && seat.status === "in_use"
+        );
 
-        try {
-          const q = query(collection(db, "students"), where("name", "==", studentName));
-          const snapshot = await getDocs(q);
+        seatSection.style.display = "block";
+        document.getElementById("seatStudent").innerText =
+          `${studentName} 학생 좌석 선택`;
 
-          if (snapshot.empty) {
-            msg.innerText = "학생정보가 조회되지 않습니다";
-            return;
-          }
-
-          let found = false;
-          snapshot.forEach((docSnap) => {
-            if (docSnap.id === studentId) {
-              found = true;
-            }
-          });
-
-          if (!found) {
-            msg.innerText = "학번이 일치하지 않습니다";
-            return;
-          }
-
-          currentStudent = {
-            id: studentId,
-            name: studentName
-          };
-
-          document.getElementById("seatStudent").innerText =
-            `${studentName} 학생 좌석 선택`;
-
-          seatSection.style.display = "block";
+        if (existingSeat) {
           completeBtn.disabled = true;
-
+          selectedSeatId = null;
+          document.getElementById("seatMessage").innerText =
+            `${studentName} 학생은 이미 ${existingSeat.seat_number}번 좌석을 사용 중입니다. 기존 QR과 비밀번호를 표시합니다.`;
+          await issueAccess(currentStudent, existingSeat.seat_number);
+        } else {
+          completeBtn.disabled = true;
           renderSeats();
-
-          seatSection.scrollIntoView({
-            behavior: "smooth",
-            block: "start"
-          });
-        } catch (e) {
-          console.error(e);
-          msg.innerText = "오류가 발생했습니다";
-        } finally {
-          btn.disabled = false;
-          btn.innerText = "인증하기";
         }
-      });
 
+        seatSection.scrollIntoView({
+          behavior: "smooth",
+          block: "start"
+        });
+      } catch (e) {
+        console.error(e);
+        msg.innerText = "오류가 발생했습니다.";
+      } finally {
+        btn.disabled = false;
+        btn.innerText = "인증하기";
+      }
+    }
+
+    window.resetSeats = async function () {
+      try {
+        await resetAllSeats(true);
+        const todayKey = formatDateKey(new Date());
+        await setDoc(doc(db, "system_settings", "seat_reset"), {
+          last_reset_date: todayKey,
+          updated_at: serverTimestamp()
+        });
+      } catch (e) {
+        console.error(e);
+        alert("좌석 초기화 중 오류가 발생했습니다.");
+      }
+    };
+
+    window.addEventListener("DOMContentLoaded", async () => {
+      const idInput = document.getElementById("id");
+      const btn = document.getElementById("btn");
+      const completeBtn = document.getElementById("completeBtn");
+
+      await ensureSeatsInitialized();
+      await autoResetIfNeeded();
+      subscribeSeatsRealtime();
+      updateAccessAvailability();
+
+      btn.addEventListener("click", handleAuth);
       completeBtn.addEventListener("click", confirmSeatSelection);
 
       idInput.addEventListener("input", (e) => {
         e.target.value = e.target.value.replace(/[^0-9]/g, "").slice(0, 8);
       });
+
+      setInterval(updateAccessAvailability, 30000);
     });
   </script>
 
@@ -433,6 +593,25 @@
       margin: 0 0 18px;
       word-break: keep-all;
       letter-spacing: -0.3px;
+    }
+
+    .time-notice {
+      margin-bottom: 14px;
+      padding: 14px 16px;
+      border-radius: 16px;
+      font-size: 14px;
+      font-weight: 700;
+      word-break: keep-all;
+    }
+
+    .time-notice.active {
+      background: #eff6ff;
+      color: #1d4ed8;
+    }
+
+    .time-notice.inactive {
+      background: #fef2f2;
+      color: #dc2626;
     }
 
     .status-card,
@@ -497,10 +676,12 @@
       font-weight: 700;
       cursor: pointer;
       margin-top: 6px;
+      transition: opacity 0.2s ease, transform 0.15s ease;
     }
 
-    .complete-button {
-      margin-top: 18px;
+    .button:active,
+    .complete-button:active {
+      transform: scale(0.99);
     }
 
     .button:disabled,
@@ -698,6 +879,8 @@
     <div class="wrap">
       <h1 class="title">순천향대학교 사물인터넷학과 출입 인증 시스템</h1>
 
+      <div id="timeNotice" class="time-notice"></div>
+
       <div class="status-card">
         <div class="status-item">
           <div class="status-label">전체 좌석</div>
@@ -756,4 +939,11 @@
     </div>
   </div>
 </body>
-</html> 
+</html>
+"""
+
+path = "/mnt/data/index.html"
+with open(path, "w", encoding="utf-8") as f:
+    f.write(html)
+
+print(path)
