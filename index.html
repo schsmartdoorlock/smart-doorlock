@@ -18,7 +18,9 @@
       getDoc,
       updateDoc,
       writeBatch,
-      onSnapshot
+      onSnapshot,
+      query,
+      where
     } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
     import QRCode from "https://cdn.skypack.dev/qrcode";
 
@@ -36,7 +38,9 @@
 
     let currentStudent = null;
     let seatsCache = [];
+    let usageCache = [];
     let selectedSeatId = null;
+    let adminLoggedIn = false;
 
     function pad(n) {
       return String(n).padStart(2, "0");
@@ -46,6 +50,22 @@
       return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
     }
 
+    function formatTimestamp(ts) {
+      if (!ts) return "-";
+      try {
+        const d = ts.toDate ? ts.toDate() : new Date(ts);
+        const yyyy = d.getFullYear();
+        const mm = pad(d.getMonth() + 1);
+        const dd = pad(d.getDate());
+        const hh = pad(d.getHours());
+        const mi = pad(d.getMinutes());
+        return `${yyyy}-${mm}-${dd} ${hh}:${mi}`;
+      } catch {
+        return "-";
+      }
+    }
+
+    // 테스트용: 시간 제한 해제
     function isWithinAccessHours() {
       return true;
     }
@@ -150,13 +170,6 @@
       btn.disabled = !allowed;
       timeNotice.innerText = getTimeStatusText();
       timeNotice.className = allowed ? "time-notice active" : "time-notice inactive";
-
-      if (!allowed) {
-        selectedSeatId = null;
-        currentStudent = null;
-        document.getElementById("seatSection").style.display = "none";
-        document.getElementById("result").style.display = "none";
-      }
     }
 
     function updateSeatStatsAndRender() {
@@ -170,6 +183,9 @@
       document.getElementById("occupancyRate").innerText = `${rate}%`;
 
       renderSeats();
+      if (adminLoggedIn) {
+        renderAdminPanel();
+      }
     }
 
     function buildSectionLayout(sectionName) {
@@ -337,14 +353,6 @@
           created_at: serverTimestamp(),
           is_used: false
         });
-
-        await addDoc(collection(db, "seat_usage"), {
-          student_id: student.id,
-          name: student.name,
-          seat_number: seatNumber,
-          status: "in_use",
-          created_at: serverTimestamp()
-        });
       }
 
       const qrData = {
@@ -354,6 +362,38 @@
       };
 
       showIssuedAccess(student.name, seatNumber, code, qrData);
+    }
+
+    async function createUsageRecord(student, seatNumber) {
+      await addDoc(collection(db, "seat_usage"), {
+        student_id: student.id,
+        name: student.name,
+        seat_number: seatNumber,
+        status: "in_use",
+        entered_at: serverTimestamp(),
+        left_at: null
+      });
+    }
+
+    async function closeUsageRecord(studentId, seatNumber) {
+      const q = query(
+        collection(db, "seat_usage"),
+        where("student_id", "==", studentId),
+        where("seat_number", "==", seatNumber),
+        where("status", "==", "in_use")
+      );
+
+      const snap = await getDocs(q);
+      const batch = writeBatch(db);
+
+      snap.forEach((usageDoc) => {
+        batch.update(usageDoc.ref, {
+          status: "left",
+          left_at: serverTimestamp()
+        });
+      });
+
+      await batch.commit();
     }
 
     async function confirmSeatSelection() {
@@ -393,6 +433,7 @@
         });
 
         await issueAccess(currentStudent, selectedSeat.seat_number);
+        await createUsageRecord(currentStudent, selectedSeat.seat_number);
 
         document.getElementById("seatMessage").innerText =
           `${currentStudent.name} 학생 ${selectedSeat.seat_number}번 좌석 선택 완료`;
@@ -442,6 +483,8 @@
           assigned_at: null
         });
 
+        await closeUsageRecord(currentStudent.id, existingSeat.seat_number);
+
         selectedSeatId = null;
         document.getElementById("result").style.display = "none";
         document.getElementById("seatMessage").innerText =
@@ -474,6 +517,19 @@
         }
 
         updateSeatStatsAndRender();
+      });
+    }
+
+    function subscribeUsageRealtime() {
+      onSnapshot(collection(db, "seat_usage"), (snapshot) => {
+        usageCache = snapshot.docs.map((d) => ({
+          id: d.id,
+          ...d.data()
+        }));
+
+        if (adminLoggedIn) {
+          renderAdminPanel();
+        }
       });
     }
 
@@ -571,6 +627,108 @@
       }
     }
 
+    function openAdminModal() {
+      document.getElementById("adminModal").style.display = "flex";
+      document.getElementById("adminMsg").innerText = "";
+      document.getElementById("adminId").value = "";
+      document.getElementById("adminPw").value = "";
+    }
+
+    function closeAdminModal() {
+      document.getElementById("adminModal").style.display = "none";
+    }
+
+    function renderAdminPanel() {
+      const panel = document.getElementById("adminPanel");
+      const occupiedList = document.getElementById("occupiedList");
+      const usageTableBody = document.getElementById("usageTableBody");
+
+      if (!panel || !adminLoggedIn) return;
+
+      const occupiedSeats = seatsCache
+        .filter((seat) => seat.status === "in_use")
+        .sort((a, b) => a.seat_number - b.seat_number);
+
+      occupiedList.innerHTML = "";
+
+      if (occupiedSeats.length === 0) {
+        occupiedList.innerHTML = `<div class="admin-empty">현재 사용 중인 좌석이 없습니다.</div>`;
+      } else {
+        occupiedSeats.forEach((seat) => {
+          const item = document.createElement("div");
+          item.className = "occupied-item";
+          item.innerHTML = `
+            <div><strong>${seat.seat_number}번</strong></div>
+            <div>${seat.student_name || "-"}</div>
+            <div>${seat.student_id || "-"}</div>
+            <div>${formatTimestamp(seat.assigned_at)}</div>
+          `;
+          occupiedList.appendChild(item);
+        });
+      }
+
+      usageTableBody.innerHTML = "";
+
+      const sortedUsage = [...usageCache].sort((a, b) => {
+        const aTime = a.entered_at?.seconds || 0;
+        const bTime = b.entered_at?.seconds || 0;
+        return bTime - aTime;
+      });
+
+      if (sortedUsage.length === 0) {
+        usageTableBody.innerHTML = `
+          <tr>
+            <td colspan="6" class="admin-empty-cell">사용 기록이 없습니다.</td>
+          </tr>
+        `;
+      } else {
+        sortedUsage.forEach((usage) => {
+          const tr = document.createElement("tr");
+          tr.innerHTML = `
+            <td>${usage.name || "-"}</td>
+            <td>${usage.student_id || "-"}</td>
+            <td>${usage.seat_number || "-"}</td>
+            <td>${formatTimestamp(usage.entered_at)}</td>
+            <td>${formatTimestamp(usage.left_at)}</td>
+            <td>${usage.status || "-"}</td>
+          `;
+          usageTableBody.appendChild(tr);
+        });
+      }
+    }
+
+    async function handleAdminLogin() {
+      const id = document.getElementById("adminId").value.trim();
+      const pw = document.getElementById("adminPw").value.trim();
+      const msg = document.getElementById("adminMsg");
+
+      if (id === "admin" && pw === "1234") {
+        adminLoggedIn = true;
+        closeAdminModal();
+        document.getElementById("adminPanel").style.display = "block";
+        renderAdminPanel();
+      } else {
+        msg.innerText = "관리자 아이디 또는 비밀번호가 올바르지 않습니다.";
+      }
+    }
+
+    function handleAdminLogout() {
+      adminLoggedIn = false;
+      document.getElementById("adminPanel").style.display = "none";
+    }
+
+    async function handleAdminReset() {
+      const confirmed = window.confirm("전체 좌석을 초기화하시겠습니까?");
+      if (!confirmed) return;
+
+      await resetAllSeats(true);
+      const todayKey = formatDateKey(new Date());
+      await setDoc(doc(db, "system_settings", "seat_reset"), {
+        last_reset_date: todayKey,
+        updated_at: serverTimestamp()
+      });
+    }
+
     window.resetSeats = async function () {
       try {
         await resetAllSeats(true);
@@ -590,15 +748,29 @@
       const btn = document.getElementById("btn");
       const completeBtn = document.getElementById("completeBtn");
       const exitBtn = document.getElementById("exitBtn");
+      const adminOpenBtn = document.getElementById("adminOpenBtn");
+      const adminCloseBtn = document.getElementById("adminCloseBtn");
+      const adminLoginBtn = document.getElementById("adminLoginBtn");
+      const adminLogoutBtn = document.getElementById("adminLogoutBtn");
+      const adminResetBtn = document.getElementById("adminResetBtn");
+      const modalCloseX = document.getElementById("modalCloseX");
 
       await ensureSeatsInitialized();
       await autoResetIfNeeded();
       subscribeSeatsRealtime();
+      subscribeUsageRealtime();
       updateAccessAvailability();
 
       btn.addEventListener("click", handleAuth);
       completeBtn.addEventListener("click", confirmSeatSelection);
       exitBtn.addEventListener("click", handleExit);
+
+      adminOpenBtn.addEventListener("click", openAdminModal);
+      adminCloseBtn.addEventListener("click", closeAdminModal);
+      modalCloseX.addEventListener("click", closeAdminModal);
+      adminLoginBtn.addEventListener("click", handleAdminLogin);
+      adminLogoutBtn.addEventListener("click", handleAdminLogout);
+      adminResetBtn.addEventListener("click", handleAdminReset);
 
       idInput.addEventListener("input", (e) => {
         e.target.value = e.target.value.replace(/[^0-9]/g, "").slice(0, 8);
@@ -633,7 +805,7 @@
 
     .wrap {
       width: 100%;
-      max-width: 480px;
+      max-width: 520px;
     }
 
     .title {
@@ -643,6 +815,23 @@
       margin: 0 0 18px;
       word-break: keep-all;
       letter-spacing: -0.3px;
+    }
+
+    .top-actions {
+      display: flex;
+      justify-content: flex-end;
+      margin-bottom: 12px;
+    }
+
+    .admin-open-btn {
+      border: none;
+      background: #111827;
+      color: white;
+      border-radius: 12px;
+      padding: 10px 14px;
+      font-size: 14px;
+      font-weight: 700;
+      cursor: pointer;
     }
 
     .time-notice {
@@ -666,7 +855,8 @@
 
     .status-card,
     .card,
-    .seat-card {
+    .seat-card,
+    .admin-panel {
       width: 100%;
       background: #ffffff;
       border-radius: 24px;
@@ -703,7 +893,8 @@
       margin-bottom: 12px;
     }
 
-    .input {
+    .input,
+    .admin-input {
       width: 100%;
       height: 58px;
       border: 1px solid #d1d5db;
@@ -716,7 +907,9 @@
 
     .button,
     .complete-button,
-    .exit-button {
+    .exit-button,
+    .admin-btn,
+    .admin-danger-btn {
       width: 100%;
       height: 56px;
       border: none;
@@ -730,30 +923,40 @@
     }
 
     .button,
-    .complete-button {
+    .complete-button,
+    .admin-btn {
       background: #000000;
     }
 
-    .exit-button {
+    .exit-button,
+    .admin-danger-btn {
       background: #dc2626;
+    }
+
+    .exit-button {
       display: none;
       margin-top: 12px;
     }
 
     .button:active,
     .complete-button:active,
-    .exit-button:active {
+    .exit-button:active,
+    .admin-btn:active,
+    .admin-danger-btn:active {
       transform: scale(0.99);
     }
 
     .button:disabled,
     .complete-button:disabled,
-    .exit-button:disabled {
+    .exit-button:disabled,
+    .admin-btn:disabled,
+    .admin-danger-btn:disabled {
       opacity: 0.7;
       cursor: not-allowed;
     }
 
-    .message {
+    .message,
+    .admin-msg {
       margin: 16px 2px 0;
       font-size: 15px;
       line-height: 1.5;
@@ -761,11 +964,13 @@
       word-break: keep-all;
     }
 
-    .seat-card {
+    .seat-card,
+    .admin-panel {
       display: none;
     }
 
-    .seat-title {
+    .seat-title,
+    .admin-title {
       font-size: 20px;
       font-weight: 800;
       margin-bottom: 16px;
@@ -889,6 +1094,120 @@
       box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06);
     }
 
+    .admin-actions {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 16px;
+    }
+
+    .admin-actions .admin-btn,
+    .admin-actions .admin-danger-btn {
+      width: auto;
+      flex: 1;
+      font-size: 16px;
+      height: 48px;
+      margin-top: 0;
+    }
+
+    .occupied-list {
+      display: grid;
+      gap: 10px;
+      margin-bottom: 18px;
+    }
+
+    .occupied-item {
+      display: grid;
+      grid-template-columns: 70px 1fr 1fr 1fr;
+      gap: 8px;
+      align-items: center;
+      padding: 12px;
+      background: #f9fafb;
+      border-radius: 14px;
+      font-size: 14px;
+    }
+
+    .admin-subtitle {
+      font-size: 16px;
+      font-weight: 800;
+      margin: 18px 0 10px;
+    }
+
+    .admin-empty {
+      padding: 14px;
+      text-align: center;
+      background: #f9fafb;
+      border-radius: 14px;
+      color: #6b7280;
+      font-size: 14px;
+    }
+
+    .admin-table-wrap {
+      overflow-x: auto;
+    }
+
+    .admin-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 14px;
+    }
+
+    .admin-table th,
+    .admin-table td {
+      padding: 10px 8px;
+      border-bottom: 1px solid #e5e7eb;
+      text-align: center;
+      white-space: nowrap;
+    }
+
+    .admin-table th {
+      background: #f9fafb;
+      font-weight: 800;
+    }
+
+    .admin-empty-cell {
+      color: #6b7280;
+      padding: 16px 8px;
+    }
+
+    .modal {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(17, 24, 39, 0.55);
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+      z-index: 9999;
+    }
+
+    .modal-card {
+      width: 100%;
+      max-width: 420px;
+      background: #ffffff;
+      border-radius: 24px;
+      padding: 20px;
+      box-shadow: 0 20px 40px rgba(0, 0, 0, 0.18);
+      position: relative;
+    }
+
+    .modal-close {
+      position: absolute;
+      top: 12px;
+      right: 14px;
+      border: none;
+      background: transparent;
+      font-size: 22px;
+      cursor: pointer;
+      color: #6b7280;
+    }
+
+    .modal-title {
+      font-size: 20px;
+      font-weight: 800;
+      margin-bottom: 14px;
+      text-align: center;
+    }
+
     @media (max-width: 480px) {
       .page {
         padding: 18px 14px 32px;
@@ -907,21 +1226,30 @@
         grid-template-columns: 1fr;
       }
 
+      .occupied-item {
+        grid-template-columns: 1fr;
+        text-align: center;
+      }
+
       .card,
       .seat-card,
-      .status-card {
+      .status-card,
+      .admin-panel {
         padding: 18px;
         border-radius: 20px;
       }
 
-      .input {
+      .input,
+      .admin-input {
         height: 54px;
         font-size: 16px;
       }
 
       .button,
       .complete-button,
-      .exit-button {
+      .exit-button,
+      .admin-btn,
+      .admin-danger-btn {
         height: 54px;
         font-size: 18px;
       }
@@ -934,6 +1262,10 @@
         width: 200px !important;
         height: 200px !important;
       }
+
+      .admin-actions {
+        flex-direction: column;
+      }
     }
   </style>
 </head>
@@ -941,6 +1273,10 @@
 <body>
   <div class="page">
     <div class="wrap">
+      <div class="top-actions">
+        <button id="adminOpenBtn" class="admin-open-btn">관리자 모드</button>
+      </div>
+
       <h1 class="title">순천향대학교 사물인터넷학과 출입 인증 시스템</h1>
 
       <div id="timeNotice" class="time-notice"></div>
@@ -1001,6 +1337,54 @@
           </div>
         </div>
       </div>
+
+      <div class="admin-panel" id="adminPanel">
+        <div class="admin-title">관리자 패널</div>
+
+        <div class="admin-actions">
+          <button id="adminResetBtn" class="admin-danger-btn">전체 좌석 초기화</button>
+          <button id="adminLogoutBtn" class="admin-btn">관리자 로그아웃</button>
+        </div>
+
+        <div class="admin-subtitle">현재 사용 중 좌석</div>
+        <div class="occupied-list" id="occupiedList"></div>
+
+        <div class="admin-subtitle">입실 / 퇴실 기록</div>
+        <div class="admin-table-wrap">
+          <table class="admin-table">
+            <thead>
+              <tr>
+                <th>이름</th>
+                <th>학번</th>
+                <th>좌석</th>
+                <th>입실 시간</th>
+                <th>퇴실 시간</th>
+                <th>상태</th>
+              </tr>
+            </thead>
+            <tbody id="usageTableBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal" id="adminModal">
+    <div class="modal-card">
+      <button class="modal-close" id="modalCloseX">×</button>
+      <div class="modal-title">관리자 로그인</div>
+
+      <div class="field">
+        <input id="adminId" class="admin-input" placeholder="관리자 아이디" />
+      </div>
+
+      <div class="field">
+        <input id="adminPw" class="admin-input" type="password" placeholder="관리자 비밀번호" />
+      </div>
+
+      <button id="adminLoginBtn" class="admin-btn">로그인</button>
+      <p id="adminMsg" class="admin-msg"></p>
+      <button id="adminCloseBtn" class="admin-danger-btn" style="margin-top:12px;">닫기</button>
     </div>
   </div>
 </body>
