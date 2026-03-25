@@ -42,6 +42,8 @@
     let selectedSeatId = null;
     let adminLoggedIn = false;
 
+    const TOTAL_SEATS = 55;
+
     function pad(n) {
       return String(n).padStart(2, "0");
     }
@@ -65,7 +67,6 @@
       }
     }
 
-    // 테스트용: 시간 제한 해제
     function isWithinAccessHours() {
       return true;
     }
@@ -77,16 +78,36 @@
     async function seedSeats() {
       const batch = writeBatch(db);
 
-      for (let n = 1; n <= 48; n++) {
+      for (let n = 1; n <= 80; n++) {
         const ref = doc(db, "seats", `seat_${String(n).padStart(2, "0")}`);
         batch.delete(ref);
       }
 
-      for (let n = 1; n <= 45; n++) {
-        const localIndex = n <= 24 ? n : n - 24;
-        const section = n <= 24 ? "A" : "B";
-        const row = Math.floor((localIndex - 1) / 4) + 1;
-        const col = ((localIndex - 1) % 4) + 1;
+      for (let n = 1; n <= 55; n++) {
+        let row = 1;
+        let col = 1;
+        let section = "A";
+
+        if (n <= 48) {
+          row = Math.floor((n - 1) / 8) + 1;
+          const positionInRow = ((n - 1) % 8) + 1;
+
+          if (positionInRow <= 4) {
+            section = "A";
+            col = positionInRow;
+          } else {
+            section = "B";
+            col = positionInRow - 4;
+          }
+        } else if (n <= 52) {
+          row = 7;
+          section = "A";
+          col = n - 48;
+        } else {
+          row = 7;
+          section = "B";
+          col = n - 52;
+        }
 
         const ref = doc(db, "seats", `seat_${String(n).padStart(2, "0")}`);
         batch.set(ref, {
@@ -136,7 +157,7 @@
 
       let needsReset = false;
 
-      if (snap.size !== 45) {
+      if (snap.size !== TOTAL_SEATS) {
         needsReset = true;
       }
 
@@ -193,7 +214,7 @@
         .filter((seat) => seat.section === sectionName)
         .sort((a, b) => a.seat_number - b.seat_number);
 
-      const maxRows = 6;
+      const maxRows = 7;
       const maxCols = 4;
       const map = new Map();
 
@@ -805,7 +826,7 @@
 
     .wrap {
       width: 100%;
-      max-width: 520px;
+      max-width: 620px;
     }
 
     .title {
@@ -1284,7 +1305,7 @@
       <div class="status-card">
         <div class="status-item">
           <div class="status-label">전체 좌석</div>
-          <div class="status-value" id="totalSeats">45석</div>
+          <div class="status-value" id="totalSeats">55석</div>
         </div>
         <div class="status-item">
           <div class="status-label">남은 좌석</div>
