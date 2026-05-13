@@ -34,7 +34,10 @@
     };
 
     const app = initializeApp(firebaseConfig);
+    console.log("firebase 초기화 성공");
+
     const db = getFirestore(app);
+    console.log("firestore 연결 성공");
 
     let currentStudent = null;
     let seatsCache = [];
