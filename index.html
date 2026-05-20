@@ -1011,10 +1011,29 @@ async function seedSeats() {
       color: #374151;
     }
 
-    .seat-grid {
-      display: grid;
-      gap: 8px;
-    }
+   .seat-grid {
+  display: grid;
+  gap: 14px;
+}
+
+#sectionA,
+#sectionB {
+  grid-template-columns: repeat(3, 1fr);
+  align-items: start;
+}
+
+.seat {
+  width: 100%;
+  min-height: 150px;
+  border-radius: 24px;
+  font-size: 22px;
+  font-weight: 800;
+}
+
+.seat-empty {
+  visibility: hidden;
+  min-height: 150px;
+}
 
     #sectionA,
     #sectionB {
