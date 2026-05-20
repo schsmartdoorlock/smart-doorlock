@@ -67,10 +67,60 @@
     }
 
     function getTimeStatusText() {
-      return "테스트 모드입니다. 현재 출입 제한 없이 이용 가능합니다.";
-    }
+  return "테스트 모드입니다. 현재 출입 제한 없이 이용 가능합니다.";
+}
 
-    async function seedSeats() {
+async function loadWeather() {
+  try {
+    const lat = 36.7694;
+    const lon = 126.9339;
+
+    const url =
+      `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,relative_humidity_2m,weather_code&timezone=Asia%2FSeoul`;
+
+    const res = await fetch(url);
+    const data = await res.json();
+
+    const temp = Math.round(data.current.temperature_2m);
+    const humidity = data.current.relative_humidity_2m;
+    const weatherText = getWeatherText(data.current.weather_code);
+
+    document.getElementById("weatherBox").innerHTML =
+      `🌤 충청남도 아산시 신창면&nbsp;&nbsp; ${temp}°C | ${weatherText} | 습도 ${humidity}%`;
+  } catch (e) {
+    console.error(e);
+    document.getElementById("weatherBox").innerText =
+      "날씨 정보를 불러올 수 없습니다.";
+  }
+}
+
+function getWeatherText(code) {
+  const map = {
+    0: "맑음",
+    1: "대체로 맑음",
+    2: "부분적으로 흐림",
+    3: "흐림",
+    45: "안개",
+    48: "서리 안개",
+    51: "약한 이슬비",
+    53: "이슬비",
+    55: "강한 이슬비",
+    61: "약한 비",
+    63: "비",
+    65: "강한 비",
+    71: "약한 눈",
+    73: "눈",
+    75: "강한 눈",
+    80: "약한 소나기",
+    81: "소나기",
+    82: "강한 소나기",
+    95: "뇌우"
+  };
+
+  return map[code] || "날씨 정보";
+}
+
+async function seedSeats() {
       const batch = writeBatch(db);
 
       for (let n = 1; n <= 80; n++) {
@@ -201,7 +251,7 @@
 
     function buildSectionLayout(sectionName) {
       const maxRows = 6;
-      const maxCols = sectionName === "A" ? 2 : 3;
+      const maxCols = 3;
       const map = new Map();
 
       seatsCache
@@ -748,7 +798,9 @@
       });
 
       updateAccessAvailability();
-
+      loadWeather();
+      setInterval(loadWeather, 10 * 60 * 1000);
+      
       try {
         await ensureSeatsInitialized();
         await autoResetIfNeeded();
@@ -774,6 +826,19 @@
       font-family: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Noto Sans KR", sans-serif;
       background: #f3f4f6;
       color: #111827;
+    }
+
+    .weather-box {
+      width: 100%;
+      background: #ffffff;
+      border-radius: 18px;
+      padding: 14px 18px;
+      margin-bottom: 16px;
+      font-size: 15px;
+      font-weight: 700;
+      line-height: 1.6;
+      color: #111827;
+      box-shadow: 0 8px 20px rgba(0,0,0,0.06);
     }
 
     .page {
@@ -951,12 +1016,9 @@
       gap: 8px;
     }
 
-    #sectionA {
-      grid-template-columns: repeat(2, 1fr);
-    }
-
+    #sectionA,
     #sectionB {
-      grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: repeat(3, 1fr);
     }
 
     .seat,
@@ -1215,6 +1277,9 @@
       <h1 class="title">순천향대학교 사물인터넷학과 출입 인증 시스템</h1>
 
       <div id="timeNotice" class="time-notice"></div>
+      <div id="weatherBox" class="weather-box">
+      날씨 정보를 불러오는 중...
+      </div>
 
       <div class="status-card">
         <div class="status-item">
