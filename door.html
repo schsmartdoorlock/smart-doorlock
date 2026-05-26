@@ -1,557 +1,167 @@
-<!DOCTYPE html>
-<html lang="ko">
-<head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<body>
 
-<title>출입 인증 키패드</title>
+<div class="wrap">
 
-<script type="module">
+  <!-- 왼쪽 -->
+  <div class="left-side">
 
-import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+    <div class="title">
+      실시간 좌석 현황
+    </div>
 
-import {
-  getFirestore,
-  collection,
-  getDocs,
-  query,
-  where,
-  onSnapshot
-} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+    <div class="top-box">
 
-const firebaseConfig = {
-  apiKey: "AIzaSyD8Ze-40qNj-FMDjCu2XSlhdc57oDpUs-M",
-  authDomain: "smart-doorlock-ed630.firebaseapp.com",
-  projectId: "smart-doorlock-ed630",
-  storageBucket: "smart-doorlock-ed630.firebasestorage.app",
-  messagingSenderId: "319771642912",
-  appId: "1:319771642912:web:18a412384f1792ad2d8045"
-};
+      <div class="info-card">
+        <div class="info-title">전체 좌석</div>
+        <div class="info-value">27석</div>
+      </div>
 
-const app = initializeApp(firebaseConfig);
+      <div class="info-card">
+        <div class="info-title">남은 좌석</div>
+        <div class="info-value" id="remain">-</div>
+      </div>
 
-const db = getFirestore(app);
+      <div class="info-card">
+        <div class="info-title">이용률</div>
+        <div class="info-value" id="rate">-</div>
+      </div>
 
-let currentCode = "";
+    </div>
 
-const TOTAL_SEATS = 27;
+    <div class="weather" id="weather">
+      날씨 불러오는 중...
+    </div>
 
-function updateDisplay() {
+    <div class="seat-grid" id="seatGrid"></div>
 
-  document.getElementById("display").innerText =
-    currentCode || "----";
-}
+  </div>
 
-function addNumber(num) {
 
-  if (currentCode.length >= 4) return;
+  <!-- 오른쪽 -->
+  <div class="right-side">
 
-  currentCode += num;
+    <div class="keypad-title">
+      비밀번호 출입
+    </div>
 
-  updateDisplay();
-}
+    <div class="keypad-wrap">
 
-function clearOne() {
+      <div class="display" id="display">
+        ----
+      </div>
 
-  currentCode = currentCode.slice(0, -1);
+      <div class="status" id="status">
+        4자리 비밀번호 입력
+      </div>
 
-  updateDisplay();
-}
+      <div class="keypad">
 
-async function submitCode() {
+        <button class="key" data-value="1">1</button>
+        <button class="key" data-value="2">2</button>
+        <button class="key" data-value="3">3</button>
 
-  const statusText = document.getElementById("status");
+        <button class="key" data-value="4">4</button>
+        <button class="key" data-value="5">5</button>
+        <button class="key" data-value="6">6</button>
 
-  if (currentCode.length !== 4) {
+        <button class="key" data-value="7">7</button>
+        <button class="key" data-value="8">8</button>
+        <button class="key" data-value="9">9</button>
 
-    statusText.innerText =
-      "4자리 비밀번호를 입력하세요.";
+        <button class="key clear" data-value="clear">←</button>
+        <button class="key" data-value="0">0</button>
+        <button class="key submit" data-value="submit">확인</button>
 
-    return;
-  }
+      </div>
 
-  statusText.innerText =
-    "인증 확인 중...";
+    </div>
 
-  try {
+  </div>
 
-    const q = query(
-      collection(db, "access_codes"),
-      where("code", "==", currentCode)
-    );
+</div>
 
-    const snap = await getDocs(q);
-
-    if (snap.empty) {
-
-      statusText.innerText =
-        "비밀번호가 올바르지 않습니다.";
-
-      currentCode = "";
-
-      updateDisplay();
-
-      return;
-    }
-
-    statusText.innerText =
-      "출입 승인 완료";
-
-    /*
-      나중에 라즈베리파이 연결 시 사용
-    */
-
-    // await fetch("http://라즈베리파이IP:5000/open");
-
-    currentCode = "";
-
-    updateDisplay();
-
-  } catch (e) {
-
-    console.error(e);
-
-    statusText.innerText =
-      "오류가 발생했습니다.";
-
-    currentCode = "";
-
-    updateDisplay();
-  }
-}
-
-async function loadWeather() {
-
-  try {
-
-    const lat = 36.7694;
-    const lon = 126.9339;
-
-    const url =
-      `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,relative_humidity_2m,weather_code&timezone=Asia%2FSeoul`;
-
-    const res = await fetch(url);
-
-    const data = await res.json();
-
-    const temp =
-      Math.round(data.current.temperature_2m);
-
-    const humidity =
-      data.current.relative_humidity_2m;
-
-    const weatherText =
-      getWeatherText(data.current.weather_code);
-
-    document.getElementById("weather").innerHTML =
-      `🌤 충청남도 아산시 신창면<br>
-       ${temp}°C | ${weatherText} | 습도 ${humidity}%`;
-
-  } catch (e) {
-
-    console.error(e);
-
-    document.getElementById("weather").innerText =
-      "날씨 정보를 불러올 수 없습니다.";
-  }
-}
-
-function getWeatherText(code) {
-
-  const map = {
-    0: "맑음",
-    1: "대체로 맑음",
-    2: "부분적으로 흐림",
-    3: "흐림",
-    45: "안개",
-    61: "비",
-    71: "눈",
-    95: "뇌우"
-  };
-
-  return map[code] || "날씨";
-}
-
-function renderSeats(seats) {
-
-  const grid =
-    document.getElementById("seatGrid");
-
-  grid.innerHTML = "";
-
-  const used =
-    seats.filter(seat =>
-      seat.status === "in_use"
-    ).length;
-
-  const remain =
-    TOTAL_SEATS - used;
-
-  const rate =
-    Math.round((used / TOTAL_SEATS) * 100);
-
-  document.getElementById("remain").innerText =
-    `${remain}석`;
-
-  document.getElementById("rate").innerText =
-    `${rate}%`;
-
-  seats
-    .sort((a, b) =>
-      a.seat_number - b.seat_number
-    )
-    .forEach(seat => {
-
-      const div =
-        document.createElement("div");
-
-      div.className =
-        `seat ${seat.status}`;
-
-      div.innerText =
-        seat.seat_number;
-
-      grid.appendChild(div);
-    });
-}
-
-function subscribeSeatsRealtime() {
-
-  onSnapshot(
-    collection(db, "seats"),
-    (snapshot) => {
-
-      const seats =
-        snapshot.docs.map(doc => ({
-          id: doc.id,
-          ...doc.data()
-        }));
-
-      renderSeats(seats);
-    }
-  );
-}
-
-window.addEventListener("DOMContentLoaded", () => {
-
-  updateDisplay();
-
-  loadWeather();
-
-  setInterval(loadWeather, 600000);
-
-  subscribeSeatsRealtime();
-
-  document.querySelectorAll(".key")
-    .forEach(btn => {
-
-      btn.addEventListener("click", () => {
-
-        const value =
-          btn.dataset.value;
-
-        if (value === "clear") {
-
-          clearOne();
-
-        } else if (value === "submit") {
-
-          submitCode();
-
-        } else {
-
-          addNumber(value);
-        }
-      });
-    });
-});
-
-</script>
-
-<style>
-
-*{
-  box-sizing:border-box;
-}
-
-body{
-  margin:0;
-  background:#f3f4f6;
-  font-family:-apple-system,BlinkMacSystemFont,"Noto Sans KR",sans-serif;
-}
-
-.wrap{
-  width:100%;
-  max-width:900px;
-  margin:0 auto;
-  padding:24px;
-}
-
-.title{
-  font-size:34px;
-  font-weight:900;
-  text-align:center;
-  margin-bottom:24px;
-}
-
-.top-box{
-
-  display:grid;
-
-  grid-template-columns:1fr 1fr 1fr;
-
-  gap:16px;
-
-  margin-bottom:24px;
-}
-
-.info-card{
-
-  background:white;
-
-  border-radius:20px;
-
-  padding:20px;
-
-  text-align:center;
-
-  box-shadow:0 8px 24px rgba(0,0,0,0.06);
-}
-
-.info-title{
-  font-size:15px;
-  color:#6b7280;
-  margin-bottom:8px;
-}
-
-.info-value{
-  font-size:32px;
-  font-weight:900;
-}
-
-.weather{
-
-  background:white;
-
-  border-radius:20px;
-
-  padding:20px;
-
-  margin-bottom:24px;
-
-  text-align:center;
-
-  font-size:18px;
-
-  font-weight:700;
-
-  line-height:1.7;
-
-  box-shadow:0 8px 24px rgba(0,0,0,0.06);
-}
-
-.seat-grid{
-
-  display:grid;
-
-  grid-template-columns:repeat(9,1fr);
-
-  gap:10px;
-
-  margin-bottom:30px;
-}
-
-.seat{
-
-  aspect-ratio:1/1;
-
-  border-radius:16px;
-
-  display:flex;
-
-  justify-content:center;
-  align-items:center;
-
-  font-size:20px;
-
-  font-weight:800;
-}
-
-.available{
-  background:white;
-  color:#111827;
-}
-
-.in_use{
-  background:#111827;
-  color:white;
-}
-
-.keypad-wrap{
-
-  background:white;
-
-  border-radius:28px;
-
-  padding:28px;
-
-  box-shadow:0 12px 32px rgba(0,0,0,0.08);
-}
-
-.display{
-
-  width:100%;
-
-  height:90px;
-
-  border-radius:18px;
-
-  background:#111827;
-
-  color:white;
-
-  display:flex;
-
-  justify-content:center;
-  align-items:center;
-
-  font-size:42px;
-
-  font-weight:900;
-
-  letter-spacing:8px;
-
-  margin-bottom:18px;
-}
-
-.status{
-
-  text-align:center;
-
-  font-size:16px;
-
-  margin-bottom:20px;
-
-  min-height:24px;
-}
-
-.keypad{
-
-  display:grid;
-
-  grid-template-columns:repeat(3,1fr);
-
-  gap:14px;
-}
-
-.key{
-
-  height:80px;
-
-  border:none;
-
-  border-radius:18px;
-
-  font-size:28px;
-
-  font-weight:700;
-
-  cursor:pointer;
-
-  background:#f3f4f6;
-}
-
-.submit{
-  background:#111827;
-  color:white;
-}
-
-.clear{
-  background:#dc2626;
-  color:white;
-}
-
-@media(max-width:768px){
-
-  .top-box{
-    grid-template-columns:1fr;
-  }
-
-  .seat-grid{
-    grid-template-columns:repeat(5,1fr);
-  }
-}
-
-</style>
-</head>
+</body>
 
 <body>
 
 <div class="wrap">
 
-<div class="title">
-출입 인증 시스템
-</div>
+  <!-- 왼쪽 -->
+  <div class="left-side">
 
-<div class="top-box">
+    <div class="title">
+      실시간 좌석 현황
+    </div>
 
-<div class="info-card">
-<div class="info-title">전체 좌석</div>
-<div class="info-value">27석</div>
-</div>
+    <div class="top-box">
 
-<div class="info-card">
-<div class="info-title">남은 좌석</div>
-<div class="info-value" id="remain">-</div>
-</div>
+      <div class="info-card">
+        <div class="info-title">전체 좌석</div>
+        <div class="info-value">27석</div>
+      </div>
 
-<div class="info-card">
-<div class="info-title">이용률</div>
-<div class="info-value" id="rate">-</div>
-</div>
+      <div class="info-card">
+        <div class="info-title">남은 좌석</div>
+        <div class="info-value" id="remain">-</div>
+      </div>
 
-</div>
+      <div class="info-card">
+        <div class="info-title">이용률</div>
+        <div class="info-value" id="rate">-</div>
+      </div>
 
-<div class="weather" id="weather">
-날씨 불러오는 중...
-</div>
+    </div>
 
-<div class="seat-grid" id="seatGrid">
-</div>
+    <div class="weather" id="weather">
+      날씨 불러오는 중...
+    </div>
 
-<div class="keypad-wrap">
+    <div class="seat-grid" id="seatGrid"></div>
 
-<div class="display" id="display">
-----
-</div>
+  </div>
 
-<div class="status" id="status">
-4자리 비밀번호 입력
-</div>
 
-<div class="keypad">
+  <!-- 오른쪽 -->
+  <div class="right-side">
 
-<button class="key" data-value="1">1</button>
-<button class="key" data-value="2">2</button>
-<button class="key" data-value="3">3</button>
+    <div class="keypad-title">
+      비밀번호 출입
+    </div>
 
-<button class="key" data-value="4">4</button>
-<button class="key" data-value="5">5</button>
-<button class="key" data-value="6">6</button>
+    <div class="keypad-wrap">
 
-<button class="key" data-value="7">7</button>
-<button class="key" data-value="8">8</button>
-<button class="key" data-value="9">9</button>
+      <div class="display" id="display">
+        ----
+      </div>
 
-<button class="key clear" data-value="clear">←</button>
-<button class="key" data-value="0">0</button>
-<button class="key submit" data-value="submit">확인</button>
+      <div class="status" id="status">
+        4자리 비밀번호 입력
+      </div>
 
-</div>
+      <div class="keypad">
 
-</div>
+        <button class="key" data-value="1">1</button>
+        <button class="key" data-value="2">2</button>
+        <button class="key" data-value="3">3</button>
+
+        <button class="key" data-value="4">4</button>
+        <button class="key" data-value="5">5</button>
+        <button class="key" data-value="6">6</button>
+
+        <button class="key" data-value="7">7</button>
+        <button class="key" data-value="8">8</button>
+        <button class="key" data-value="9">9</button>
+
+        <button class="key clear" data-value="clear">←</button>
+        <button class="key" data-value="0">0</button>
+        <button class="key submit" data-value="submit">확인</button>
+
+      </div>
+
+    </div>
+
+  </div>
 
 </div>
 
 </body>
-</html>
