@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>순천향대학교 사물인터넷학과 출입 인증 시스템</title>
-
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
     import {
@@ -41,7 +41,8 @@
     let usageCache = [];
     let selectedSeatId = null;
     let adminLoggedIn = false;
-
+    let hourChartInstance = null;
+    let dayChartInstance = null;
     const TOTAL_SEATS = 27;
 
     function pad(n) {
@@ -718,7 +719,99 @@
     function closeAdminModal() {
       document.getElementById("adminModal").style.display = "none";
     }
+    function renderUsageCharts() {
 
+  const hourData = Array(24).fill(0);
+
+  const dayData = {
+    "일": 0,
+    "월": 0,
+    "화": 0,
+    "수": 0,
+    "목": 0,
+    "금": 0,
+    "토": 0
+  };
+
+  usageCache.forEach((usage) => {
+
+    if (!usage.entered_at) return;
+
+    const date = usage.entered_at.toDate
+      ? usage.entered_at.toDate()
+      : new Date(usage.entered_at);
+
+    const hour = date.getHours();
+
+    hourData[hour]++;
+
+    const day = ["일", "월", "화", "수", "목", "금", "토"][date.getDay()];
+
+    dayData[day]++;
+  });
+
+  const hourCtx = document.getElementById("hourChart");
+
+  if (hourCtx) {
+
+    if (hourChartInstance) {
+      hourChartInstance.destroy();
+    }
+
+    hourChartInstance = new Chart(hourCtx, {
+      type: "line",
+      data: {
+        labels: [
+          "0시","1시","2시","3시","4시","5시",
+          "6시","7시","8시","9시","10시","11시",
+          "12시","13시","14시","15시","16시","17시",
+          "18시","19시","20시","21시","22시","23시"
+        ],
+        datasets: [{
+          label: "좌석 이용 수",
+          data: hourData,
+          tension: 0.3
+        }]
+      },
+      options: {
+        responsive: true,
+        plugins: {
+          legend: {
+            display: true
+          }
+        }
+      }
+    });
+  }
+
+  const dayCtx = document.getElementById("dayChart");
+
+  if (dayCtx) {
+
+    if (dayChartInstance) {
+      dayChartInstance.destroy();
+    }
+
+    dayChartInstance = new Chart(dayCtx, {
+      type: "bar",
+      data: {
+        labels: Object.keys(dayData),
+        datasets: [{
+          label: "요일별 이용 수",
+          data: Object.values(dayData)
+        }]
+      },
+      options: {
+        responsive: true,
+        plugins: {
+          legend: {
+            display: true
+          }
+        }
+      }
+    });
+  }
+}
     function renderAdminPanel() {
       const panel = document.getElementById("adminPanel");
       const occupiedList = document.getElementById("occupiedList");
@@ -795,6 +888,7 @@
         closeAdminModal();
         document.getElementById("adminPanel").style.display = "block";
         renderAdminPanel();
+        renderUsageCharts();
       } else {
         msg.innerText = "관리자 아이디 또는 비밀번호가 올바르지 않습니다.";
       }
@@ -1241,6 +1335,14 @@
       overflow-x: auto;
     }
 
+    .chart-box {
+      width: 100%;
+      background: #ffffff;
+      border-radius: 16px;
+      padding: 16px;
+      margin-bottom: 18px;
+}
+
     .admin-table {
       width: 100%;
       border-collapse: collapse;
@@ -1450,7 +1552,17 @@
 
         <div class="admin-subtitle">현재 사용 중 좌석</div>
         <div class="occupied-list" id="occupiedList"></div>
+        <div class="admin-subtitle">시간대별 좌석 이용률</div>
 
+<div class="chart-box">
+  <canvas id="hourChart"></canvas>
+</div>
+
+<div class="admin-subtitle">요일별 이용 통계</div>
+
+<div class="chart-box">
+  <canvas id="dayChart"></canvas>
+</div>
         <div class="admin-subtitle">입실 / 퇴실 기록</div>
         <div class="admin-table-wrap">
           <table class="admin-table">
