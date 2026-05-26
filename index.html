@@ -43,6 +43,7 @@
     let adminLoggedIn = false;
     let hourChartInstance = null;
     let dayChartInstance = null;
+    let monthChartInstance = null;
     const TOTAL_SEATS = 27;
 
     function pad(n) {
@@ -726,6 +727,20 @@
   const hourData = Array(24).fill(0);
 
   const dayData = {
+    const monthData = {
+  "1월": 0,
+  "2월": 0,
+  "3월": 0,
+  "4월": 0,
+  "5월": 0,
+  "6월": 0,
+  "7월": 0,
+  "8월": 0,
+  "9월": 0,
+  "10월": 0,
+  "11월": 0,
+  "12월": 0
+};
     "일": 0,
     "월": 0,
     "화": 0,
@@ -750,6 +765,9 @@
     const day = ["일", "월", "화", "수", "목", "금", "토"][date.getDay()];
 
     dayData[day]++;
+    const month = `${date.getMonth() + 1}월`;
+
+monthData[month]++;
   });
 
   const hourCtx = document.getElementById("hourChart");
@@ -776,13 +794,22 @@
         }]
       },
       options: {
-        responsive: true,
-        plugins: {
-          legend: {
-            display: true
-          }
-        }
+  responsive: true,
+  scales: {
+    y: {
+      beginAtZero: true,
+      max: 27,
+      ticks: {
+        stepSize: 1
       }
+    }
+  },
+  plugins: {
+    legend: {
+      display: true
+    }
+  }
+}
     });
   }
 
@@ -804,15 +831,56 @@
         }]
       },
       options: {
-        responsive: true,
-        plugins: {
-          legend: {
-            display: true
-          }
-        }
+  responsive: true,
+  scales: {
+    y: {
+      beginAtZero: true,
+      max: 27,
+      ticks: {
+        stepSize: 1
       }
+    }
+  },
+  plugins: {
+    legend: {
+      display: true
+    }
+  }
+}
     });
   }
+    const monthCtx = document.getElementById("monthChart");
+
+if (monthCtx) {
+
+  if (monthChartInstance) {
+    monthChartInstance.destroy();
+  }
+
+  monthChartInstance = new Chart(monthCtx, {
+    type: "bar",
+    data: {
+      labels: Object.keys(monthData),
+      datasets: [{
+        label: "월별 이용 수",
+        data: Object.values(monthData)
+      }]
+    },
+    options: {
+      responsive: true,
+      scales: {
+        y: {
+          beginAtZero: true
+        }
+      },
+      plugins: {
+        legend: {
+          display: true
+        }
+      }
+    }
+  });
+}
 }
     function renderAdminPanel() {
       const panel = document.getElementById("adminPanel");
@@ -1568,6 +1636,11 @@
 
 <div class="chart-box">
   <canvas id="dayChart"></canvas>
+  <div class="admin-subtitle">월별 이용 통계</div>
+
+<div class="chart-box">
+  <canvas id="monthChart"></canvas>
+</div>
 </div>
         <div class="admin-subtitle">입실 / 퇴실 기록</div>
         <div class="admin-table-wrap">
