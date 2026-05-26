@@ -615,14 +615,15 @@
     }
 
     function subscribeUsageRealtime() {
-      onSnapshot(collection(db, "seat_usage"), (snapshot) => {
-        usageCache = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }));
+  onSnapshot(collection(db, "seat_usage"), (snapshot) => {
+    usageCache = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }));
 
-        if (adminLoggedIn) {
-          renderAdminPanel();
-        }
-      });
+    if (adminLoggedIn) {
+      renderAdminPanel();
+      renderUsageCharts();
     }
+  });
+}
 
     async function handleAuth() {
       const nameInput = document.getElementById("name");
