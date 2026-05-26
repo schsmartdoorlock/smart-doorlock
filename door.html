@@ -3,7 +3,6 @@
 <head>
 
 <meta charset="UTF-8" />
-
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 
 <title>출입 인증 키패드</title>
@@ -31,7 +30,6 @@ const firebaseConfig = {
 };
 
 const app = initializeApp(firebaseConfig);
-
 const db = getFirestore(app);
 
 let currentCode = "";
@@ -46,7 +44,7 @@ function updateDisplay() {
 
 function addNumber(num) {
 
-  if (currentCode.length >= 4) return;
+  if(currentCode.length >= 4) return;
 
   currentCode += num;
 
@@ -56,7 +54,7 @@ function addNumber(num) {
 function clearOne() {
 
   currentCode =
-    currentCode.slice(0, -1);
+    currentCode.slice(0,-1);
 
   updateDisplay();
 }
@@ -66,10 +64,10 @@ async function submitCode() {
   const statusText =
     document.getElementById("status");
 
-  if (currentCode.length !== 4) {
+  if(currentCode.length !== 4){
 
     statusText.innerText =
-      "4자리 비밀번호를 입력하세요.";
+      "4자리 비밀번호 입력";
 
     return;
   }
@@ -77,20 +75,20 @@ async function submitCode() {
   statusText.innerText =
     "인증 확인 중...";
 
-  try {
+  try{
 
     const q = query(
-      collection(db, "access_codes"),
-      where("code", "==", currentCode)
+      collection(db,"access_codes"),
+      where("code","==",currentCode)
     );
 
     const snap =
       await getDocs(q);
 
-    if (snap.empty) {
+    if(snap.empty){
 
       statusText.innerText =
-        "비밀번호가 올바르지 않습니다.";
+        "비밀번호 오류";
 
       currentCode = "";
 
@@ -102,22 +100,18 @@ async function submitCode() {
     statusText.innerText =
       "출입 승인 완료";
 
-    /*
-      라즈베리파이 연결 시 사용
-    */
-
     // await fetch("http://라즈베리파이IP:5000/open");
 
     currentCode = "";
 
     updateDisplay();
 
-  } catch (e) {
+  }catch(e){
 
     console.error(e);
 
     statusText.innerText =
-      "오류가 발생했습니다.";
+      "오류 발생";
 
     currentCode = "";
 
@@ -125,9 +119,9 @@ async function submitCode() {
   }
 }
 
-async function loadWeather() {
+async function loadWeather(){
 
-  try {
+  try{
 
     const lat = 36.7694;
     const lon = 126.9339;
@@ -147,39 +141,20 @@ async function loadWeather() {
     const humidity =
       data.current.relative_humidity_2m;
 
-    const weatherText =
-      getWeatherText(data.current.weather_code);
-
     document.getElementById("weather").innerHTML =
-      `🌤 충청남도 아산시 신창면<br>
-       ${temp}°C | ${weatherText} | 습도 ${humidity}%`;
+      `🌤 아산시 신창면<br>
+       ${temp}°C | 습도 ${humidity}%`;
 
-  } catch (e) {
+  }catch(e){
 
     console.error(e);
 
     document.getElementById("weather").innerText =
-      "날씨 정보를 불러올 수 없습니다.";
+      "날씨 오류";
   }
 }
 
-function getWeatherText(code) {
-
-  const map = {
-    0: "맑음",
-    1: "대체로 맑음",
-    2: "부분적으로 흐림",
-    3: "흐림",
-    45: "안개",
-    61: "비",
-    71: "눈",
-    95: "뇌우"
-  };
-
-  return map[code] || "날씨";
-}
-
-function renderSeats(seats) {
+function renderSeats(seats){
 
   const grid =
     document.getElementById("seatGrid");
@@ -204,7 +179,7 @@ function renderSeats(seats) {
     `${rate}%`;
 
   seats
-    .sort((a, b) =>
+    .sort((a,b)=>
       a.seat_number - b.seat_number
     )
     .forEach(seat => {
@@ -222,15 +197,15 @@ function renderSeats(seats) {
     });
 }
 
-function subscribeSeatsRealtime() {
+function subscribeSeatsRealtime(){
 
   onSnapshot(
-    collection(db, "seats"),
-    (snapshot) => {
+    collection(db,"seats"),
+    (snapshot)=>{
 
       const seats =
-        snapshot.docs.map(doc => ({
-          id: doc.id,
+        snapshot.docs.map(doc=>({
+          id:doc.id,
           ...doc.data()
         }));
 
@@ -239,34 +214,34 @@ function subscribeSeatsRealtime() {
   );
 }
 
-window.addEventListener("DOMContentLoaded", () => {
+window.addEventListener("DOMContentLoaded",()=>{
 
   updateDisplay();
 
   loadWeather();
 
-  setInterval(loadWeather, 600000);
+  setInterval(loadWeather,600000);
 
   subscribeSeatsRealtime();
 
   document
     .querySelectorAll(".key")
-    .forEach(btn => {
+    .forEach(btn=>{
 
-      btn.addEventListener("click", () => {
+      btn.addEventListener("click",()=>{
 
         const value =
           btn.dataset.value;
 
-        if (value === "clear") {
+        if(value === "clear"){
 
           clearOne();
 
-        } else if (value === "submit") {
+        }else if(value === "submit"){
 
           submitCode();
 
-        } else {
+        }else{
 
           addNumber(value);
         }
@@ -282,72 +257,25 @@ window.addEventListener("DOMContentLoaded", () => {
   box-sizing:border-box;
 }
 
-html,body{
+body{
 
   margin:0;
-  padding:0;
-
-  width:100%;
-  height:100%;
-
-  overflow:hidden;
+  padding:16px;
 
   background:#f3f4f6;
 
   font-family:-apple-system,BlinkMacSystemFont,"Noto Sans KR",sans-serif;
 }
 
-.wrap{
-
-  width:100vw;
-  height:100vh;
-
-  display:grid;
-
-  grid-template-columns:1.6fr 0.8fr;
-
-  gap:20px;
-
-  padding:20px;
-}
-
-.left-side{
-
-  display:flex;
-  flex-direction:column;
-
-  height:100%;
-}
-
-.right-side{
-
-  display:flex;
-  flex-direction:column;
-  justify-content:center;
-
-  height:100%;
-}
-
 .title{
 
-  font-size:34px;
-
-  font-weight:900;
-
-  margin-bottom:16px;
-
-  text-align:center;
-}
-
-.keypad-title{
-
-  font-size:34px;
+  font-size:28px;
 
   font-weight:900;
 
   text-align:center;
 
-  margin-bottom:20px;
+  margin-bottom:18px;
 }
 
 .top-box{
@@ -356,27 +284,25 @@ html,body{
 
   grid-template-columns:1fr 1fr 1fr;
 
-  gap:14px;
+  gap:10px;
 
-  margin-bottom:16px;
+  margin-bottom:14px;
 }
 
 .info-card{
 
   background:white;
 
-  border-radius:22px;
+  border-radius:18px;
 
-  padding:18px;
+  padding:14px;
 
   text-align:center;
-
-  box-shadow:0 6px 18px rgba(0,0,0,0.06);
 }
 
 .info-title{
 
-  font-size:16px;
+  font-size:13px;
 
   color:#6b7280;
 
@@ -385,7 +311,7 @@ html,body{
 
 .info-value{
 
-  font-size:34px;
+  font-size:28px;
 
   font-weight:900;
 }
@@ -394,11 +320,9 @@ html,body{
 
   background:white;
 
-  border-radius:22px;
+  border-radius:18px;
 
   padding:18px;
-
-  margin-bottom:16px;
 
   text-align:center;
 
@@ -408,23 +332,25 @@ html,body{
 
   line-height:1.6;
 
-  box-shadow:0 6px 18px rgba(0,0,0,0.06);
+  margin-bottom:16px;
 }
 
 .seat-grid{
 
-  flex:1;
-
   display:grid;
 
-  grid-template-columns:repeat(9,1fr);
+  grid-template-columns:repeat(3,1fr);
 
   gap:10px;
+
+  margin-bottom:20px;
 }
 
 .seat{
 
-  border-radius:20px;
+  aspect-ratio:1/1;
+
+  border-radius:18px;
 
   display:flex;
 
@@ -432,11 +358,9 @@ html,body{
 
   align-items:center;
 
-  font-size:28px;
+  font-size:30px;
 
   font-weight:900;
-
-  aspect-ratio:1/1;
 }
 
 .available{
@@ -457,20 +381,18 @@ html,body{
 
   background:white;
 
-  border-radius:28px;
+  border-radius:24px;
 
-  padding:26px;
-
-  box-shadow:0 10px 28px rgba(0,0,0,0.08);
+  padding:18px;
 }
 
 .display{
 
   width:100%;
 
-  height:90px;
+  height:80px;
 
-  border-radius:22px;
+  border-radius:18px;
 
   background:#071633;
 
@@ -482,22 +404,22 @@ html,body{
 
   align-items:center;
 
-  font-size:48px;
+  font-size:42px;
 
   font-weight:900;
 
-  letter-spacing:10px;
+  letter-spacing:8px;
 
-  margin-bottom:18px;
+  margin-bottom:14px;
 }
 
 .status{
 
   text-align:center;
 
-  font-size:18px;
+  margin-bottom:18px;
 
-  margin-bottom:20px;
+  font-size:16px;
 
   min-height:24px;
 }
@@ -508,22 +430,20 @@ html,body{
 
   grid-template-columns:repeat(3,1fr);
 
-  gap:14px;
+  gap:10px;
 }
 
 .key{
 
-  height:82px;
+  height:72px;
 
   border:none;
 
   border-radius:18px;
 
-  font-size:30px;
+  font-size:28px;
 
   font-weight:800;
-
-  cursor:pointer;
 
   background:#f3f4f6;
 }
@@ -548,85 +468,66 @@ html,body{
 
 <body>
 
-<div class="wrap">
+<div class="title">
+  출입 인증 시스템
+</div>
 
-  <!-- 왼쪽 -->
-  <div class="left-side">
+<div class="top-box">
 
-    <div class="title">
-      실시간 좌석 현황
-    </div>
-
-    <div class="top-box">
-
-      <div class="info-card">
-        <div class="info-title">전체 좌석</div>
-        <div class="info-value">27석</div>
-      </div>
-
-      <div class="info-card">
-        <div class="info-title">남은 좌석</div>
-        <div class="info-value" id="remain">-</div>
-      </div>
-
-      <div class="info-card">
-        <div class="info-title">이용률</div>
-        <div class="info-value" id="rate">-</div>
-      </div>
-
-    </div>
-
-    <div class="weather" id="weather">
-      날씨 불러오는 중...
-    </div>
-
-    <div class="seat-grid" id="seatGrid"></div>
-
+  <div class="info-card">
+    <div class="info-title">전체 좌석</div>
+    <div class="info-value">27석</div>
   </div>
 
-  <!-- 오른쪽 -->
-  <div class="right-side">
+  <div class="info-card">
+    <div class="info-title">남은 좌석</div>
+    <div class="info-value" id="remain">-</div>
+  </div>
 
-    <div class="keypad-title">
-      비밀번호 출입
-    </div>
+  <div class="info-card">
+    <div class="info-title">이용률</div>
+    <div class="info-value" id="rate">-</div>
+  </div>
 
-    <div class="keypad-wrap">
+</div>
 
-      <div class="display" id="display">
-        ----
-      </div>
+<div class="weather" id="weather">
+  날씨 불러오는 중...
+</div>
 
-      <div class="status" id="status">
-        4자리 비밀번호 입력
-      </div>
+<div class="seat-grid" id="seatGrid"></div>
 
-      <div class="keypad">
+<div class="keypad-wrap">
 
-        <button class="key" data-value="1">1</button>
-        <button class="key" data-value="2">2</button>
-        <button class="key" data-value="3">3</button>
+  <div class="display" id="display">
+    ----
+  </div>
 
-        <button class="key" data-value="4">4</button>
-        <button class="key" data-value="5">5</button>
-        <button class="key" data-value="6">6</button>
+  <div class="status" id="status">
+    4자리 비밀번호 입력
+  </div>
 
-        <button class="key" data-value="7">7</button>
-        <button class="key" data-value="8">8</button>
-        <button class="key" data-value="9">9</button>
+  <div class="keypad">
 
-        <button class="key clear" data-value="clear">←</button>
-        <button class="key" data-value="0">0</button>
-        <button class="key submit" data-value="submit">확인</button>
+    <button class="key" data-value="1">1</button>
+    <button class="key" data-value="2">2</button>
+    <button class="key" data-value="3">3</button>
 
-      </div>
+    <button class="key" data-value="4">4</button>
+    <button class="key" data-value="5">5</button>
+    <button class="key" data-value="6">6</button>
 
-    </div>
+    <button class="key" data-value="7">7</button>
+    <button class="key" data-value="8">8</button>
+    <button class="key" data-value="9">9</button>
+
+    <button class="key clear" data-value="clear">←</button>
+    <button class="key" data-value="0">0</button>
+    <button class="key submit" data-value="submit">확인</button>
 
   </div>
 
 </div>
 
 </body>
-
 </html>
