@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+<title>출입 인증 키패드</title>
+
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+
+import {
+  getFirestore,
+  collection,
+  getDocs,
+  query,
+  where,
+  updateDoc,
+  doc
+} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyD8Ze-40qNj-FMDjCu2XSlhdc57oDpUs-M",
+  authDomain: "smart-doorlock-ed630.firebaseapp.com",
+  projectId: "smart-doorlock-ed630",
+  storageBucket: "smart-doorlock-ed630.firebasestorage.app",
+  messagingSenderId: "319771642912",
+  appId: "1:319771642912:web:18a412384f1792ad2d8045"
+};
+
+const app = initializeApp(firebaseConfig);
+const db = getFirestore(app);
+
+let currentCode = "";
+
+const display = document.getElementById("display");
+const statusText = document.getElementById("status");
+
+function updateDisplay() {
+  display.innerText = currentCode || "----";
+}
+
+function addNumber(num) {
+
+  if (currentCode.length >= 4) return;
+
+  currentCode += num;
+
+  updateDisplay();
+}
+
+function clearOne() {
+
+  currentCode = currentCode.slice(0, -1);
+
+  updateDisplay();
+}
+
+async function submitCode() {
+
+  if (currentCode.length !== 4) {
+
+    statusText.innerText = "4자리 비밀번호를 입력하세요.";
+
+    return;
+  }
+
+  statusText.innerText = "인증 확인 중...";
+
+  try {
+
+    const q = query(
+      collection(db, "access_codes"),
+      where("code", "==", currentCode),
+      where("is_used", "==", false)
+    );
+
+    const snap = await getDocs(q);
+
+    if (snap.empty) {
+
+      statusText.innerText = "비밀번호가 올바르지 않습니다.";
+
+      currentCode = "";
+
+      updateDisplay();
+
+      return;
+    }
+
+    const codeDoc = snap.docs[0];
+
+    await updateDoc(doc(db, "access_codes", codeDoc.id), {
+      is_used: true
+    });
+
+    statusText.innerText = "출입 승인 완료";
+
+    /*
+      라즈베리파이 OPEN 요청
+    */
+
+    await fetch("http://라즈베리파이IP:5000/open");
+
+    currentCode = "";
+
+    updateDisplay();
+
+  } catch (e) {
+
+    console.error(e);
+
+    statusText.innerText = "오류가 발생했습니다.";
+
+    currentCode = "";
+
+    updateDisplay();
+  }
+}
+
+window.addEventListener("DOMContentLoaded", () => {
+
+  updateDisplay();
+
+  document.querySelectorAll(".key").forEach((btn) => {
+
+    btn.addEventListener("click", () => {
+
+      const value = btn.dataset.value;
+
+      if (value === "clear") {
+
+        clearOne();
+
+      } else if (value === "submit") {
+
+        submitCode();
+
+      } else {
+
+        addNumber(value);
+      }
+    });
+  });
+});
+</script>
+
+<style>
+
+*{
+  box-sizing:border-box;
+}
+
+body{
+  margin:0;
+  background:#f3f4f6;
+  font-family:-apple-system,BlinkMacSystemFont,"Noto Sans KR",sans-serif;
+
+  display:flex;
+  justify-content:center;
+  align-items:center;
+
+  min-height:100vh;
+}
+
+.wrap{
+  width:100%;
+  max-width:420px;
+
+  background:white;
+
+  border-radius:28px;
+
+  padding:28px;
+
+  box-shadow:0 12px 32px rgba(0,0,0,0.08);
+}
+
+.title{
+  font-size:28px;
+  font-weight:800;
+
+  text-align:center;
+
+  margin-bottom:24px;
+}
+
+.display{
+
+  width:100%;
+
+  height:90px;
+
+  border-radius:18px;
+
+  background:#111827;
+
+  color:white;
+
+  display:flex;
+  justify-content:center;
+  align-items:center;
+
+  font-size:42px;
+  font-weight:900;
+
+  letter-spacing:8px;
+
+  margin-bottom:18px;
+}
+
+.status{
+
+  text-align:center;
+
+  font-size:15px;
+
+  color:#374151;
+
+  margin-bottom:20px;
+
+  min-height:24px;
+}
+
+.keypad{
+
+  display:grid;
+
+  grid-template-columns:repeat(3,1fr);
+
+  gap:14px;
+}
+
+.key{
+
+  height:80px;
+
+  border:none;
+
+  border-radius:18px;
+
+  font-size:28px;
+
+  font-weight:700;
+
+  cursor:pointer;
+
+  background:#f3f4f6;
+
+  transition:0.15s;
+}
+
+.key:active{
+  transform:scale(0.96);
+}
+
+.submit{
+  background:#111827;
+  color:white;
+}
+
+.clear{
+  background:#dc2626;
+  color:white;
+}
+
+</style>
+</head>
+
+<body>
+
+<div class="wrap">
+
+<div class="title">
+출입 인증
+</div>
+
+<div class="display" id="display">
+----
+</div>
+
+<div class="status" id="status">
+4자리 비밀번호 입력
+</div>
+
+<div class="keypad">
+
+<button class="key" data-value="1">1</button>
+<button class="key" data-value="2">2</button>
+<button class="key" data-value="3">3</button>
+
+<button class="key" data-value="4">4</button>
+<button class="key" data-value="5">5</button>
+<button class="key" data-value="6">6</button>
+
+<button class="key" data-value="7">7</button>
+<button class="key" data-value="8">8</button>
+<button class="key" data-value="9">9</button>
+
+<button class="key clear" data-value="clear">←</button>
+<button class="key" data-value="0">0</button>
+<button class="key submit" data-value="submit">확인</button>
+
+</div>
+
+</div>
+
+</body>
+</html>
