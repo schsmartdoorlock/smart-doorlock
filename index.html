@@ -602,6 +602,25 @@ await accessBatch.commit();
           await closeUsageRecord(seat.student_id, seat.seat_number);
         }
 
+        const accessQuery = query(
+  collection(db, "access_codes"),
+  where("student_id", "==", seat.student_id),
+  where("seat_number", "==", seat.seat_number)
+);
+
+const accessSnap = await getDocs(accessQuery);
+
+const accessBatch = writeBatch(db);
+
+accessSnap.forEach((docSnap) => {
+  accessBatch.update(docSnap.ref, {
+    is_used: true,
+    status: "exited"
+  });
+});
+
+await accessBatch.commit();
+
         if (currentStudent && currentStudent.id === seat.student_id) {
           selectedSeatId = null;
           document.getElementById("result").style.display = "none";
