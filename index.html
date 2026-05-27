@@ -478,8 +478,17 @@
           return;
         }
 
-        const seatRef = doc(db, "seats", selectedSeat.id);
-        await updateDoc(seatRef, {
+       const seatRef = doc(db, "seats", selectedSeat.id);
+
+const latestSeatSnap = await getDoc(seatRef);
+const latestSeatData = latestSeatSnap.data();
+
+if (latestSeatData.status !== "available") {
+  alert("이미 다른 사용자가 선택한 좌석입니다.");
+  return;
+}
+
+await updateDoc(seatRef, {
           status: "in_use",
           student_id: currentStudent.id,
           student_name: currentStudent.name,
