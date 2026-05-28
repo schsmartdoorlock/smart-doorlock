@@ -22,6 +22,13 @@
       query,
       where
     } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
+    import {
+  getDatabase,
+  ref,
+  set
+} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
+    
     import QRCode from "https://cdn.skypack.dev/qrcode";
 
     const firebaseConfig = {
@@ -35,6 +42,7 @@
 
     const app = initializeApp(firebaseConfig);
     const db = getFirestore(app);
+    const rtdb = getDatabase(app);
 
     let currentStudent = null;
     let seatsCache = [];
@@ -225,6 +233,44 @@
     async function autoResetIfNeeded() {
       return;
     }
+
+    async function updateLightsState() {
+
+  const sectionASeats = [1,2,6,7,11,12,16,17,21,22];
+
+  const sectionBSeats = [
+    3,4,5,
+    8,9,10,
+    13,14,15,
+    18,19,20,
+    23,24,
+    25,26,27
+  ];
+
+  const usedSeats = seatsCache.filter(
+    seat => seat.status === "in_use"
+  );
+
+  const hasSectionAUser = usedSeats.some(
+    seat => sectionASeats.includes(seat.seat_number)
+  );
+
+  const hasSectionBUser = usedSeats.some(
+    seat => sectionBSeats.includes(seat.seat_number)
+  );
+
+  await set(ref(rtdb, "lights"), {
+
+    // 1분단 전등
+    switch1: hasSectionAUser,
+
+    // 2분단 전등
+    switch2: hasSectionBUser,
+    switch3: hasSectionBUser,
+
+    updatedAt: Date.now()
+  });
+}
 
     function updateAccessAvailability() {
       const allowed = isWithinAccessHours();
@@ -659,6 +705,7 @@ await accessBatch.commit();
         }
 
         updateSeatStatsAndRender();
+        updateLightsState();
       });
     }
 
